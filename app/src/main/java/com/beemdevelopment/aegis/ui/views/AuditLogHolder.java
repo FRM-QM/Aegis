@@ -73,7 +73,9 @@ public class AuditLogHolder extends RecyclerView.ViewHolder {
     }
 
     private void setCardBackgroundColor(EventType eventType) {
-        if (eventType == EventType.VAULT_UNLOCK_FAILED_PASSWORD || eventType == EventType.VAULT_UNLOCK_FAILED_BIOMETRICS) {
+        if (eventType == EventType.VAULT_UNLOCK_FAILED_PASSWORD
+                || eventType == EventType.VAULT_UNLOCK_FAILED_BIOMETRICS
+                || eventType == EventType.VAULT_UNLOCK_FAILED_SECURITY_KEY) {
             _cardView.setCardBackgroundColor(_errorBackgroundColor);
             _auditLogEntryIcon.setBackgroundColor(_errorBackgroundColor);
         } else {
@@ -98,6 +100,8 @@ public class AuditLogHolder extends RecyclerView.ViewHolder {
                 return R.string.event_description_vault_unlock_failed_password;
             case VAULT_UNLOCK_FAILED_BIOMETRICS:
                 return R.string.event_description_vault_unlock_failed_biometrics;
+            case VAULT_UNLOCK_FAILED_SECURITY_KEY:
+                return R.string.event_description_vault_unlock_failed_security_key;
             default:
                 return R.string.event_unknown;
         }
@@ -116,6 +120,7 @@ public class AuditLogHolder extends RecyclerView.ViewHolder {
                 return R.drawable.ic_share;
             case VAULT_UNLOCK_FAILED_PASSWORD:
             case VAULT_UNLOCK_FAILED_BIOMETRICS:
+            case VAULT_UNLOCK_FAILED_SECURITY_KEY:
                 return R.drawable.ic_lock;
         }
 

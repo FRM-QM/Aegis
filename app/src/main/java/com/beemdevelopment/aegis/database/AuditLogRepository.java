@@ -57,6 +57,11 @@ public class AuditLogRepository {
         insert(auditLogEntry);
     }
 
+    public void addVaultUnlockFailedSecurityKeyEvent() {
+        AuditLogEntry auditLogEntry = new AuditLogEntry(EventType.VAULT_UNLOCK_FAILED_SECURITY_KEY);
+        insert(auditLogEntry);
+    }
+
     public void insert(AuditLogEntry auditLogEntry) {
         _executor.execute(() -> {
             _auditLogDao.insert(auditLogEntry);

@@ -26,6 +26,7 @@ import com.beemdevelopment.aegis.ui.tasks.PasswordSlotDecryptTask;
 import com.beemdevelopment.aegis.vault.VaultFileCredentials;
 import com.beemdevelopment.aegis.vault.VaultRepositoryException;
 import com.beemdevelopment.aegis.vault.slots.BiometricSlot;
+import com.beemdevelopment.aegis.vault.slots.Fido2Slot;
 import com.beemdevelopment.aegis.vault.slots.PasswordSlot;
 import com.beemdevelopment.aegis.vault.slots.Slot;
 import com.beemdevelopment.aegis.vault.slots.SlotException;
@@ -40,6 +41,7 @@ import javax.crypto.Cipher;
 public class SecurityPreferencesFragment extends PreferencesFragment {
     private SwitchPreference _encryptionPreference;
     private SwitchPreference _biometricsPreference;
+    private Preference _securityKeysPreference;
     private Preference _autoLockPreference;
     private Preference _setPasswordPreference;
     private Preference _passwordReminderPreference;
@@ -141,6 +143,8 @@ public class SecurityPreferencesFragment extends PreferencesFragment {
 
             return false;
         });
+
+        _securityKeysPreference = requirePreference("pref_security_keys");
 
         _setPasswordPreference = requirePreference("pref_password");
         _setPasswordPreference.setOnPreferenceClickListener(preference -> {
@@ -261,6 +265,7 @@ public class SecurityPreferencesFragment extends PreferencesFragment {
         _encryptionPreference.setChecked(encrypted, true);
         _setPasswordPreference.setVisible(encrypted);
         _biometricsPreference.setVisible(encrypted);
+        _securityKeysPreference.setVisible(encrypted);
         _autoLockPreference.setVisible(encrypted);
         _pinKeyboardPreference.setVisible(encrypted);
         _backupPasswordPreference.getParent().setVisible(encrypted);
@@ -276,7 +281,13 @@ public class SecurityPreferencesFragment extends PreferencesFragment {
             _setPasswordPreference.setEnabled(!multiPassword);
             _biometricsPreference.setEnabled(canUseBio && !multiBio);
             _biometricsPreference.setChecked(slots.has(BiometricSlot.class), true);
-            _passwordReminderPreference.setVisible(slots.has(BiometricSlot.class));
+            int securityKeys = slots.findAll(Fido2Slot.class).size();
+            if (securityKeys > 0) {
+                _securityKeysPreference.setSummary(getResources().getQuantityString(R.plurals.pref_security_keys_summary_count, securityKeys, securityKeys));
+            } else {
+                _securityKeysPreference.setSummary(R.string.pref_security_keys_summary);
+            }
+            _passwordReminderPreference.setVisible(slots.has(BiometricSlot.class) || securityKeys > 0);
             _backupPasswordChangePreference.setEnabled(!multiBackupPassword);
         } else {
             _setPasswordPreference.setEnabled(false);

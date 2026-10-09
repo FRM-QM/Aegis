@@ -192,6 +192,10 @@ public class Dialogs {
     }
 
     private static void showTextInputDialog(Context context, @StringRes int titleId, @StringRes int messageId, @StringRes int hintId, TextInputListener listener, DialogInterface.OnCancelListener cancelListener, boolean isSecret,@Nullable String hint) {
+        showTextInputDialog(context, titleId, messageId, hintId, listener, cancelListener, isSecret, hint, 0, null);
+    }
+
+    private static void showTextInputDialog(Context context, @StringRes int titleId, @StringRes int messageId, @StringRes int hintId, TextInputListener listener, DialogInterface.OnCancelListener cancelListener, boolean isSecret, @Nullable String hint, @StringRes int neutralTextId, @Nullable Runnable neutralListener) {
         final AtomicReference<Button> buttonOK = new AtomicReference<>();
         View view = LayoutInflater.from(context).inflate(R.layout.dialog_text_input, null);
         TextInputEditText input = view.findViewById(R.id.text_input);
@@ -220,6 +224,11 @@ public class Dialogs {
 
         if (messageId != 0) {
             builder.setMessage(messageId);
+        }
+
+        // the neutral button dismisses the dialog without invoking the cancel listener
+        if (neutralListener != null) {
+            builder.setNeutralButton(neutralTextId, (d, which) -> neutralListener.run());
         }
 
         AlertDialog dialog = builder.create();
@@ -269,6 +278,10 @@ public class Dialogs {
 
     public static void showPasswordInputDialog(Context context, @StringRes int titleId, @StringRes int messageId, TextInputListener listener, DialogInterface.OnCancelListener cancelListener) {
         showTextInputDialog(context, titleId, messageId, R.string.password, listener, cancelListener, true, null);
+    }
+
+    public static void showPasswordInputDialog(Context context, @StringRes int titleId, @StringRes int messageId, TextInputListener listener, DialogInterface.OnCancelListener cancelListener, @StringRes int neutralTextId, @Nullable Runnable neutralListener) {
+        showTextInputDialog(context, titleId, messageId, R.string.password, listener, cancelListener, true, null, neutralTextId, neutralListener);
     }
 
     public static void showCheckboxDialog(Context context, @StringRes int titleId, @StringRes int messageId, @StringRes int checkboxMessageId, CheckboxInputListener listener) {

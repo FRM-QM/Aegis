@@ -10,6 +10,7 @@ import android.content.Context;
 
 import androidx.test.core.app.ApplicationProvider;
 
+import com.beemdevelopment.aegis.crypto.MasterKey;
 import com.beemdevelopment.aegis.encoding.Base32;
 import com.beemdevelopment.aegis.otp.HotpInfo;
 import com.beemdevelopment.aegis.otp.OtpInfo;
@@ -18,6 +19,10 @@ import com.beemdevelopment.aegis.otp.SteamInfo;
 import com.beemdevelopment.aegis.otp.TotpInfo;
 import com.beemdevelopment.aegis.util.UUIDMap;
 import com.beemdevelopment.aegis.vault.VaultEntry;
+import com.beemdevelopment.aegis.vault.VaultFileCredentials;
+import com.beemdevelopment.aegis.vault.slots.Fido2Slot;
+import com.beemdevelopment.aegis.vault.slots.SlotException;
+import com.beemdevelopment.aegis.vault.slots.SlotIntegrityException;
 import com.beemdevelopment.aegis.vectors.VaultEntries;
 import com.google.common.collect.Lists;
 
@@ -66,6 +71,47 @@ public class DatabaseImporterTest {
         List<VaultEntry> entries = importEncrypted(AegisImporter.class, "aegis_encrypted.json", encryptedState -> {
             final char[] password = "test".toCharArray();
             return ((AegisImporter.EncryptedState) encryptedState).decrypt(password);
+        });
+
+        checkImportedEntries(entries);
+    }
+
+    @Test
+    public void testImportAegisEncryptedFido2Password() throws IOException, DatabaseImporterException, OtpInfoException {
+        List<VaultEntry> entries = importEncrypted(AegisImporter.class, "aegis_encrypted_fido2.json", encryptedState -> {
+            AegisImporter.DecryptedState state = (AegisImporter.DecryptedState) ((AegisImporter.EncryptedState) encryptedState).decrypt("test".toCharArray());
+
+            // the credentials of the decrypted vault still contain the FIDO2 slot
+            Fido2Slot slot = state.getCredentials().getSlots().find(Fido2Slot.class);
+            assertNotNull(slot);
+            assertEquals("Test key", slot.getName());
+            return state;
+        });
+
+        checkImportedEntries(entries);
+    }
+
+    @Test
+    public void testImportAegisEncryptedFido2SecurityKey() throws IOException, DatabaseImporterException, OtpInfoException {
+        List<VaultEntry> entries = importEncrypted(AegisImporter.class, "aegis_encrypted_fido2.json", encryptedState -> {
+            // the slot was created with a fake hmac-secret output of 0x00..0x1f
+            byte[] secret = new byte[Fido2Slot.SECRET_SIZE];
+            for (int i = 0; i < secret.length; i++) {
+                secret[i] = (byte) i;
+            }
+
+            AegisImporter.EncryptedState state = (AegisImporter.EncryptedState) encryptedState;
+            Fido2Slot slot = state.getSlots().find(Fido2Slot.class);
+            assertNotNull(slot);
+            assertEquals(Fido2Slot.DEFAULT_RP_ID, slot.getRpId());
+            assertFalse(slot.isUv());
+
+            try {
+                MasterKey key = slot.unwrap(secret);
+                return state.decrypt(new VaultFileCredentials(key, state.getSlots()));
+            } catch (SlotException | SlotIntegrityException e) {
+                throw new DatabaseImporterException(e);
+            }
         });
 
         checkImportedEntries(entries);

@@ -8,7 +8,8 @@ public enum EventType {
     VAULT_EXPORTED,
     ENTRY_SHARED,
     VAULT_UNLOCK_FAILED_PASSWORD,
-    VAULT_UNLOCK_FAILED_BIOMETRICS;
+    VAULT_UNLOCK_FAILED_BIOMETRICS,
+    VAULT_UNLOCK_FAILED_SECURITY_KEY;
     private static EventType[] _values;
 
     static {
@@ -35,6 +36,8 @@ public enum EventType {
                 return R.string.event_title_vault_unlock_failed_password;
             case VAULT_UNLOCK_FAILED_BIOMETRICS:
                 return R.string.event_title_vault_unlock_failed_biometrics;
+            case VAULT_UNLOCK_FAILED_SECURITY_KEY:
+                return R.string.event_title_vault_unlock_failed_security_key;
             default:
                 return R.string.event_unknown;
         }

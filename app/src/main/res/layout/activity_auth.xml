@@ -101,6 +101,16 @@
                     android:text="@string/auth_use_biometrics"
                     android:visibility="gone" />
 
+                <TextView
+                    android:id="@+id/button_security_key"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:layout_marginTop="12dp"
+                    android:minWidth="125dp"
+                    android:text="@string/auth_use_security_key"
+                    android:visibility="gone" />
+
                 <LinearLayout
                     android:id="@+id/box_biometric_info"
                     android:layout_width="match_parent"

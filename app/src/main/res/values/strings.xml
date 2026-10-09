@@ -144,6 +144,8 @@
     <string name="event_description_vault_unlock_failed_password">An attempt to unlock the vault with a password failed</string>
     <string name="event_title_vault_unlock_failed_biometrics">Vault unlock failed (biometrics)</string>
     <string name="event_description_vault_unlock_failed_biometrics">An attempt to unlock the vault with biometrics failed</string>
+    <string name="event_title_vault_unlock_failed_security_key">Vault unlock failed (security key)</string>
+    <string name="event_description_vault_unlock_failed_security_key">An attempt to unlock the vault with a security key failed</string>
     <string name="event_unknown">Unknown event type</string>
     <string name="audit_log_entry_deleted">(deleted)</string>
 
@@ -624,4 +626,75 @@
         <item quantity="one">%d item selected</item>
         <item quantity="other">%d items selected</item>
     </plurals>
+
+    <!-- FIDO2 security keys -->
+    <string name="pref_security_keys_title">Security keys</string>
+    <string name="pref_security_keys_summary">Unlock the vault with a FIDO2 security key</string>
+    <plurals name="pref_security_keys_summary_count">
+        <item quantity="one">%1$d security key registered</item>
+        <item quantity="other">%1$d security keys registered</item>
+    </plurals>
+    <string name="pref_security_keys_category">Registered security keys</string>
+    <string name="pref_security_keys_empty">No security keys have been registered yet</string>
+    <string name="pref_security_key_add_title">Add security key</string>
+    <string name="pref_security_key_add_summary">Register a FIDO2 security key that supports the hmac-secret extension, over USB or NFC</string>
+    <string name="pref_security_keys_info">Each registered security key can unlock the vault on its own. If a key has a PIN, it\'s needed as well. Your password keeps working, so don\'t forget it.\n\nBackups can be unlocked with any security key that was registered at the time the backup was created.</string>
+    <string name="security_key_name_title">Name your security key</string>
+    <string name="security_key_name_hint">Name</string>
+    <string name="security_key_name_exists">A security key with this name already exists</string>
+    <string name="security_key_added">The security key has been registered</string>
+    <string name="security_key_added_on">Added on %1$s</string>
+    <string name="security_key_pin_required">PIN required</string>
+    <string name="security_key_touch_only">Touch only</string>
+    <string name="security_key_action_rename">Rename</string>
+    <string name="security_key_action_remove">Remove</string>
+    <string name="security_key_rename_title">Rename security key</string>
+    <string name="security_key_remove_title">Remove security key</string>
+    <string name="security_key_remove_description">\"%1$s\" will no longer be able to unlock the vault. Backups that were created while it was registered can still be unlocked with it.</string>
+    <string name="auth_use_security_key">Or tap here to use a <font fgcolor='#FF0D86C1'>security key</font></string>
+    <string name="use_security_key">Use security key</string>
+    <string name="security_key_enroll_title">Register security key</string>
+    <string name="security_key_unlock_title">Unlock with security key</string>
+    <string name="security_key_continue">Continue</string>
+    <string name="security_key_retry">Try again</string>
+    <string name="security_key_pin">PIN of the security key</string>
+    <string name="security_key_status_no_transport">This device doesn\'t support USB devices or NFC, so it can\'t communicate with security keys</string>
+    <string name="security_key_status_insert_or_tap">Insert your security key or hold it against the back of your device</string>
+    <string name="security_key_status_insert_or_tap_again">Insert your security key or hold it against the back of your device again</string>
+    <string name="security_key_status_tap">Hold your security key against the back of your device</string>
+    <string name="security_key_status_tap_again">Hold your security key against the back of your device again</string>
+    <string name="security_key_status_insert">Insert your security key</string>
+    <string name="security_key_status_communicating">Communicating with your security key…</string>
+    <string name="security_key_status_communicating_nfc">Communicating with your security key. Keep holding it against your device…</string>
+    <string name="security_key_status_touch_register">Touch your security key to register it</string>
+    <string name="security_key_status_touch_confirm">Touch your security key again to finish</string>
+    <string name="security_key_status_touch">Touch your security key</string>
+    <string name="security_key_status_enter_pin">Enter the PIN of your security key</string>
+    <string name="security_key_hint_usb_permission">Allow Aegis to access the security key when asked</string>
+    <string name="security_key_hint_nfc_disabled">NFC is turned off. Turn it on to use a security key over NFC.</string>
+    <plurals name="security_key_pin_retries">
+        <item quantity="one">%1$d attempt remaining</item>
+        <item quantity="other">%1$d attempts remaining</item>
+    </plurals>
+    <string name="security_key_error_pin_invalid">Wrong PIN</string>
+    <plurals name="security_key_error_pin_too_short">
+        <item quantity="one">The PIN must be at least %1$d character long</item>
+        <item quantity="other">The PIN must be at least %1$d characters long</item>
+    </plurals>
+    <string name="security_key_error_pin_auth_blocked">Too many wrong PINs in a row. Remove your security key and insert it or hold it against your device again.</string>
+    <string name="security_key_error_pin_blocked">The PIN of this security key is blocked. Unlock the vault with your password instead.</string>
+    <string name="security_key_error_unsupported_device">This device is not a FIDO2 security key</string>
+    <string name="security_key_error_hmac_secret_unsupported">This security key doesn\'t support the hmac-secret extension, which is needed to encrypt the vault</string>
+    <string name="security_key_error_not_enrolled">This security key is not registered for this vault</string>
+    <string name="security_key_error_already_enrolled">This security key is already registered</string>
+    <string name="security_key_error_already_enrolled_name">This security key is already registered as \"%1$s\"</string>
+    <string name="security_key_error_pin_not_set">This security key requires a PIN, but none has been set. Set a PIN with the tools of the manufacturer first.</string>
+    <string name="security_key_error_pin_change_required">This security key requires its PIN to be changed. Change the PIN with the tools of the manufacturer first.</string>
+    <string name="security_key_error_uv_mismatch">The PIN settings of this security key have changed since it was registered, so it can no longer unlock the vault. Unlock the vault with your password, then remove the key and register it again.</string>
+    <string name="security_key_error_secret_mismatch">This security key returned an unexpected secret and can\'t unlock the vault</string>
+    <string name="security_key_error_cancelled">The operation was cancelled</string>
+    <string name="security_key_error_timeout">The security key wasn\'t touched in time</string>
+    <string name="security_key_error_denied">The security key denied the operation</string>
+    <string name="security_key_error_protocol">An error occurred while communicating with the security key: %1$s</string>
+    <string name="security_key_error_connection_lost">The connection to the security key was lost. Please try again.</string>
 </resources>

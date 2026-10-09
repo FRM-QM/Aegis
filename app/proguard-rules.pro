@@ -8,3 +8,5 @@
 -keep class * extends com.google.protobuf.GeneratedMessageLite { *; }
 
 -dontwarn javax.naming.**
+# compile-time only annotation referenced by yubikit
+-dontwarn edu.umd.cs.findbugs.annotations.SuppressFBWarnings

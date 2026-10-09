@@ -27,10 +27,17 @@
             app:iconSpaceReserved="false"/>
 
         <Preference
+            android:key="pref_security_keys"
+            android:fragment="com.beemdevelopment.aegis.ui.fragments.preferences.SecurityKeysPreferencesFragment"
+            android:title="@string/pref_security_keys_title"
+            android:summary="@string/pref_security_keys_summary"
+            android:persistent="false"
+            app:iconSpaceReserved="false"/>
+
+        <Preference
             android:key="pref_password_reminder_freq"
             android:title="@string/pref_password_reminder_title"
             android:summary="@string/pref_password_reminder_summary"
-            android:dependency="pref_biometrics"
             app:iconSpaceReserved="false"/>
     </PreferenceCategory>
     <PreferenceCategory

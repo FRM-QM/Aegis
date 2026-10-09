@@ -3,12 +3,14 @@ package com.beemdevelopment.aegis.importers;
 import android.content.Context;
 import android.content.DialogInterface;
 
+import androidx.activity.ComponentActivity;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.Lifecycle;
 
 import com.beemdevelopment.aegis.R;
 import com.beemdevelopment.aegis.helpers.ContextHelper;
 import com.beemdevelopment.aegis.ui.dialogs.Dialogs;
+import com.beemdevelopment.aegis.ui.dialogs.SecurityKeyDialog;
 import com.beemdevelopment.aegis.ui.tasks.PasswordSlotDecryptTask;
 import com.beemdevelopment.aegis.util.IOUtils;
 import com.beemdevelopment.aegis.vault.VaultEntry;
@@ -17,6 +19,7 @@ import com.beemdevelopment.aegis.vault.VaultFile;
 import com.beemdevelopment.aegis.vault.VaultFileCredentials;
 import com.beemdevelopment.aegis.vault.VaultFileException;
 import com.beemdevelopment.aegis.vault.VaultGroup;
+import com.beemdevelopment.aegis.vault.slots.Fido2Slot;
 import com.beemdevelopment.aegis.vault.slots.PasswordSlot;
 import com.beemdevelopment.aegis.vault.slots.SlotList;
 import com.topjohnwu.superuser.io.SuFile;
@@ -87,6 +90,31 @@ public class AegisImporter extends DatabaseImporter {
 
         @Override
         public void decrypt(Context context, DecryptListener listener) {
+            // offer to decrypt the file with a security key if it has any FIDO2 slots
+            Runnable securityKeyListener = null;
+            List<Fido2Slot> fido2Slots = getSlots().findAll(Fido2Slot.class);
+            ComponentActivity activity = ContextHelper.getActivity(context);
+            if (!fido2Slots.isEmpty() && activity != null) {
+                securityKeyListener = () -> SecurityKeyDialog.showUnlock(activity, fido2Slots, new SecurityKeyDialog.Listener<SecurityKeyDialog.UnlockResult>() {
+                    @Override
+                    public void onSuccess(SecurityKeyDialog.UnlockResult result) {
+                        try {
+                            VaultFileCredentials creds = new VaultFileCredentials(result.getKey(), getSlots());
+                            State state = decrypt(creds);
+                            listener.onStateDecrypted(state);
+                        } catch (DatabaseImporterException e) {
+                            listener.onError(e);
+                        }
+                    }
+
+                    @Override
+                    public void onCancelled() {
+                        // go back to the password prompt
+                        decrypt(context, listener);
+                    }
+                });
+            }
+
             Dialogs.showPasswordInputDialog(context, R.string.enter_password_aegis_title, 0, (Dialogs.TextInputListener) password -> {
                 List<PasswordSlot> slots = getSlots().findAll(PasswordSlot.class);
                 PasswordSlotDecryptTask.Params params = new PasswordSlotDecryptTask.Params(slots, password);
@@ -106,7 +134,7 @@ public class AegisImporter extends DatabaseImporter {
 
                 Lifecycle lifecycle = ContextHelper.getLifecycle(context);
                 task.execute(lifecycle, params);
-            }, (DialogInterface.OnCancelListener) dialog -> listener.onCanceled());
+            }, (DialogInterface.OnCancelListener) dialog -> listener.onCanceled(), R.string.use_security_key, securityKeyListener);
         }
     }
 

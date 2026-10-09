@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:title="@string/pref_security_keys_title">
+    <PreferenceCategory
+        android:key="pref_security_keys_list"
+        android:title="@string/pref_security_keys_category"
+        app:iconSpaceReserved="false" />
+
+    <PreferenceCategory app:iconSpaceReserved="false">
+        <Preference
+            android:key="pref_security_key_add"
+            android:persistent="false"
+            android:title="@string/pref_security_key_add_title"
+            android:summary="@string/pref_security_key_add_summary"
+            app:icon="@drawable/ic_outline_add_24" />
+
+        <Preference
+            android:key="pref_security_keys_info"
+            android:persistent="false"
+            android:selectable="false"
+            android:summary="@string/pref_security_keys_info"
+            app:icon="@drawable/ic_outline_info_24" />
+    </PreferenceCategory>
+</PreferenceScreen>

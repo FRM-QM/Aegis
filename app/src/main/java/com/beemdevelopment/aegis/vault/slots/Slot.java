@@ -29,6 +29,7 @@ public abstract class Slot extends UUIDMap.Value {
     public final static byte TYPE_RAW = 0x00;
     public final static byte TYPE_PASSWORD = 0x01;
     public final static byte TYPE_BIOMETRIC = 0x02;
+    public final static byte TYPE_FIDO2 = 0x03;
 
     private byte[] _encryptedMasterKey;
     private CryptParameters _encryptedMasterKeyParams;
@@ -145,6 +146,16 @@ public abstract class Slot extends UUIDMap.Value {
                     break;
                 case Slot.TYPE_BIOMETRIC:
                     slot = new BiometricSlot(uuid, key, keyParams);
+                    break;
+                case Slot.TYPE_FIDO2:
+                    slot = new Fido2Slot(uuid, key, keyParams,
+                            obj.getString("name"),
+                            obj.getString("rp_id"),
+                            Hex.decode(obj.getString("credential_id")),
+                            Hex.decode(obj.getString("salt")),
+                            obj.getBoolean("uv"),
+                            obj.optLong("created", 0)
+                    );
                     break;
                 default:
                     throw new SlotException("unrecognized slot type");

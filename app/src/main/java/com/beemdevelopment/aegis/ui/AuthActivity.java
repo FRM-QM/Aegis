@@ -25,17 +25,20 @@ import com.beemdevelopment.aegis.R;
 import com.beemdevelopment.aegis.crypto.KeyStoreHandle;
 import com.beemdevelopment.aegis.crypto.KeyStoreHandleException;
 import com.beemdevelopment.aegis.crypto.MasterKey;
+import com.beemdevelopment.aegis.crypto.fido2.Fido2Exception;
 import com.beemdevelopment.aegis.helpers.BiometricsHelper;
 import com.beemdevelopment.aegis.helpers.EditTextHelper;
 import com.beemdevelopment.aegis.helpers.MetricsHelper;
 import com.beemdevelopment.aegis.helpers.UiThreadExecutor;
 import com.beemdevelopment.aegis.ui.dialogs.Dialogs;
+import com.beemdevelopment.aegis.ui.dialogs.SecurityKeyDialog;
 import com.beemdevelopment.aegis.ui.tasks.PasswordSlotDecryptTask;
 import com.beemdevelopment.aegis.vault.VaultFile;
 import com.beemdevelopment.aegis.vault.VaultFileCredentials;
 import com.beemdevelopment.aegis.vault.VaultRepository;
 import com.beemdevelopment.aegis.vault.VaultRepositoryException;
 import com.beemdevelopment.aegis.vault.slots.BiometricSlot;
+import com.beemdevelopment.aegis.vault.slots.Fido2Slot;
 import com.beemdevelopment.aegis.vault.slots.PasswordSlot;
 import com.beemdevelopment.aegis.vault.slots.Slot;
 import com.beemdevelopment.aegis.vault.slots.SlotException;
@@ -61,6 +64,8 @@ public class AuthActivity extends AegisActivity {
     private SecretKey _bioKey;
     private BiometricSlot _bioSlot;
     private BiometricPrompt _bioPrompt;
+    private List<Fido2Slot> _fido2Slots;
+    private SecurityKeyDialog<SecurityKeyDialog.UnlockResult> _securityKeyDialog;
     private Button _decryptButton;
 
     private int _failedUnlockAttempts;
@@ -92,6 +97,7 @@ public class AuthActivity extends AegisActivity {
         LinearLayout boxBiometricInfo = findViewById(R.id.box_biometric_info);
         _decryptButton = findViewById(R.id.button_decrypt);
         TextView biometricsButton = findViewById(R.id.button_biometrics);
+        TextView securityKeyButton = findViewById(R.id.button_security_key);
 
         getOnBackPressedDispatcher().addCallback(this, new BackPressHandler());
 
@@ -164,6 +170,11 @@ public class AuthActivity extends AegisActivity {
             }
         }
 
+        _fido2Slots = _slots.findAll(Fido2Slot.class);
+        if (!_fido2Slots.isEmpty()) {
+            securityKeyButton.setVisibility(View.VISIBLE);
+        }
+
         _decryptButton.setOnClickListener(v -> {
             InputMethodManager imm = (InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE);
             imm.hideSoftInputFromWindow(v.getWindowToken(), 0);
@@ -192,6 +203,22 @@ public class AuthActivity extends AegisActivity {
                 showBiometricPrompt();
             }
         });
+
+        securityKeyButton.setOnClickListener(v -> {
+            if (_prefs.isPasswordReminderNeeded()) {
+                Dialogs.showSecureDialog(new MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_Aegis_AlertDialog_Warning)
+                        .setTitle(getString(R.string.password_reminder_dialog_title))
+                        .setMessage(getString(R.string.password_reminder_dialog_message))
+                        .setCancelable(false)
+                        .setIconAttribute(android.R.attr.alertDialogIcon)
+                        .setPositiveButton(android.R.string.ok, (dialog1, which) -> {
+                            showSecurityKeyDialog();
+                        })
+                        .create());
+            } else {
+                showSecurityKeyDialog();
+            }
+        });
     }
 
     @Override
@@ -211,12 +238,14 @@ public class AuthActivity extends AegisActivity {
     public void onResume() {
         super.onResume();
 
+        // the activity is also resumed after the user responds to the USB permission prompt of the security key dialog
+        boolean securityKeyDialogShowing = _securityKeyDialog != null && _securityKeyDialog.isShowing();
         boolean remindPassword = _prefs.isPasswordReminderNeeded();
-        if (_bioKey == null || remindPassword) {
+        if (!securityKeyDialogShowing && (_bioKey == null || remindPassword)) {
             focusPasswordField();
         }
 
-        if (_bioKey != null && _bioPrompt == null && !_inhibitBioPrompt && !remindPassword) {
+        if (!securityKeyDialogShowing && _bioKey != null && _bioPrompt == null && !_inhibitBioPrompt && !remindPassword) {
             _bioPrompt = showBiometricPrompt();
         }
 
@@ -235,7 +264,8 @@ public class AuthActivity extends AegisActivity {
 
     @Override
     public void onAttachedToWindow() {
-        if (_bioKey != null && _prefs.isPasswordReminderNeeded()) {
+        boolean hasSecurityKeys = _fido2Slots != null && !_fido2Slots.isEmpty();
+        if ((_bioKey != null || hasSecurityKeys) && _prefs.isPasswordReminderNeeded()) {
             showPasswordReminder();
         }
     }
@@ -290,6 +320,34 @@ public class AuthActivity extends AegisActivity {
                 .build();
         prompt.authenticate(info, cryptoObj);
         return prompt;
+    }
+
+    private void showSecurityKeyDialog() {
+        if (_securityKeyDialog != null && _securityKeyDialog.isShowing()) {
+            return;
+        }
+
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        imm.hideSoftInputFromWindow(_textPassword.getWindowToken(), 0);
+        // prevent a YubiKey from typing an OTP into the password field when it's touched
+        _textPassword.clearFocus();
+
+        if (_bioPrompt != null) {
+            _bioPrompt.cancelAuthentication();
+            _bioPrompt = null;
+        }
+
+        _securityKeyDialog = SecurityKeyDialog.showUnlock(this, _fido2Slots, new SecurityKeyDialog.Listener<SecurityKeyDialog.UnlockResult>() {
+            @Override
+            public void onSuccess(SecurityKeyDialog.UnlockResult result) {
+                finish(result.getKey(), false);
+            }
+
+            @Override
+            public void onAttemptFailed(Fido2Exception e) {
+                _auditLogRepository.addVaultUnlockFailedSecurityKeyEvent();
+            }
+        });
     }
 
     private void finish(MasterKey key, boolean isSlotRepaired) {

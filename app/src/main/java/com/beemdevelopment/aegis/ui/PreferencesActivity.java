@@ -13,6 +13,7 @@ import com.beemdevelopment.aegis.R;
 import com.beemdevelopment.aegis.ui.fragments.preferences.AppearancePreferencesFragment;
 import com.beemdevelopment.aegis.ui.fragments.preferences.MainPreferencesFragment;
 import com.beemdevelopment.aegis.ui.fragments.preferences.PreferencesFragment;
+import com.beemdevelopment.aegis.ui.fragments.preferences.SecurityPreferencesFragment;
 import com.beemdevelopment.aegis.helpers.ViewHelper;
 
 public class PreferencesActivity extends AegisActivity implements
@@ -117,6 +118,9 @@ public class PreferencesActivity extends AegisActivity implements
                 setTitle(R.string.action_settings);
             } else if (f instanceof AppearancePreferencesFragment) {
                 _prefTitle = getString(R.string.pref_section_appearance_title);
+                setTitle(_prefTitle);
+            } else if (f instanceof SecurityPreferencesFragment) {
+                _prefTitle = getString(R.string.pref_section_security_title);
                 setTitle(_prefTitle);
             }
         }

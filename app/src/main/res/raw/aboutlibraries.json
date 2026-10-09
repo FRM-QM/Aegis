@@ -2670,6 +2670,121 @@
             ]
         },
         {
+            "uniqueId": "com.squareup.moshi:moshi",
+            "funding": [
+                
+            ],
+            "developers": [
+                {
+                    "name": "Square, Inc."
+                }
+            ],
+            "artifactVersion": "1.15.2",
+            "description": "A modern JSON API for Android and Java",
+            "scm": {
+                "connection": "scm:git:git://github.com/square/moshi.git",
+                "url": "https://github.com/square/moshi/",
+                "developerConnection": "scm:git:ssh://git@github.com/square/moshi.git"
+            },
+            "name": "moshi",
+            "website": "https://github.com/square/moshi/",
+            "licenses": [
+                "Apache-2.0"
+            ]
+        },
+        {
+            "uniqueId": "com.squareup.okio:okio-jvm",
+            "funding": [
+                
+            ],
+            "developers": [
+                {
+                    "name": "Square, Inc."
+                }
+            ],
+            "artifactVersion": "3.7.0",
+            "description": "A modern I/O library for Android, Java, and Kotlin Multiplatform.",
+            "scm": {
+                "connection": "scm:git:git://github.com/square/okio.git",
+                "url": "https://github.com/square/okio/",
+                "developerConnection": "scm:git:ssh://git@github.com/square/okio.git"
+            },
+            "name": "okio",
+            "website": "https://github.com/square/okio/",
+            "licenses": [
+                "Apache-2.0"
+            ]
+        },
+        {
+            "uniqueId": "com.yubico.yubikit:android",
+            "funding": [
+                
+            ],
+            "developers": [
+                {
+                    "name": "Dain Nilsson"
+                }
+            ],
+            "artifactVersion": "3.1.0",
+            "description": "This module is the core library implementation and provides functionality to detect a YubiKey plugged in or tapped over NFC and to open an ISO/IEC 7816 connection that allows sending raw APDU commands to the key.",
+            "scm": {
+                "connection": "scm:git:https://github.com/Yubico/yubikit-android.git",
+                "url": "https://github.com/Yubico/yubikit-android",
+                "developerConnection": "scm:git:ssh://github.com/Yubico/yubikit-android.git"
+            },
+            "name": "Yubico YubiKit Android",
+            "website": "https://github.com/Yubico/yubikit-android/tree/main/android",
+            "licenses": [
+                "Apache-2.0"
+            ]
+        },
+        {
+            "uniqueId": "com.yubico.yubikit:core",
+            "funding": [
+                
+            ],
+            "developers": [
+                {
+                    "name": "Dain Nilsson"
+                }
+            ],
+            "artifactVersion": "3.1.0",
+            "description": "The core module is the base library, with common interfaces and utilities used throughout the rest of the modules.",
+            "scm": {
+                "connection": "scm:git:https://github.com/Yubico/yubikit-android.git",
+                "url": "https://github.com/Yubico/yubikit-android",
+                "developerConnection": "scm:git:ssh://github.com/Yubico/yubikit-android.git"
+            },
+            "name": "Yubico YubiKit Core",
+            "website": "https://github.com/Yubico/yubikit-android/tree/main/core",
+            "licenses": [
+                "Apache-2.0"
+            ]
+        },
+        {
+            "uniqueId": "com.yubico.yubikit:fido",
+            "funding": [
+                
+            ],
+            "developers": [
+                {
+                    "name": "Dain Nilsson"
+                }
+            ],
+            "artifactVersion": "3.1.0",
+            "description": "This module provides FIDO support for the YubiKit SDK.",
+            "scm": {
+                "connection": "scm:git:https://github.com/Yubico/yubikit-android.git",
+                "url": "https://github.com/Yubico/yubikit-android",
+                "developerConnection": "scm:git:ssh://github.com/Yubico/yubikit-android.git"
+            },
+            "name": "Yubico YubiKit Fido",
+            "website": "https://github.com/Yubico/yubikit-android/tree/main/fido",
+            "licenses": [
+                "Apache-2.0"
+            ]
+        },
+        {
             "uniqueId": "info.guardianproject.trustedintents:trustedintents",
             "funding": [
                 
@@ -2999,7 +3114,7 @@
                     "name": "Kotlin Team"
                 }
             ],
-            "artifactVersion": "2.1.10",
+            "artifactVersion": "2.2.10",
             "description": "Kotlin Standard Library",
             "scm": {
                 "connection": "scm:git:https://github.com/JetBrains/kotlin.git",
@@ -4002,6 +4117,30 @@
             "licenses": [
                 "MIT"
             ]
+        },
+        {
+            "uniqueId": "org.slf4j:slf4j-api",
+            "funding": [
+                
+            ],
+            "developers": [
+                
+            ],
+            "artifactVersion": "2.0.17",
+            "description": "The slf4j API",
+            "scm": {
+                "connection": "scm:git:https://github.com/qos-ch/slf4j.git",
+                "url": "https://github.com/qos-ch/slf4j"
+            },
+            "name": "SLF4J API Module",
+            "website": "http://www.slf4j.org",
+            "licenses": [
+                "MIT"
+            ],
+            "organization": {
+                "url": "http://www.qos.ch",
+                "name": "QOS.ch"
+            }
         },
         {
             "uniqueId": "org.yaml:snakeyaml",

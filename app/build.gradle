@@ -159,6 +159,8 @@ dependencies {
     def junitVersion = '4.13.2'
     def libsuVersion = '6.0.0'
     def roomVersion = '2.7.1'
+    // NOTE: yubikit 3.2.0 and newer require compileSdk 37
+    def yubikitVersion = '3.1.0'
 
     annotationProcessor 'androidx.annotation:annotation:1.9.1'
     annotationProcessor "androidx.room:room-compiler:$roomVersion"
@@ -199,6 +201,9 @@ dependencies {
     }
     implementation 'com.mikepenz:aboutlibraries-core-android:11.2.3'
     implementation 'com.nulab-inc:zxcvbn:1.9.0'
+    implementation "com.yubico.yubikit:android:${yubikitVersion}"
+    implementation "com.yubico.yubikit:core:${yubikitVersion}"
+    implementation "com.yubico.yubikit:fido:${yubikitVersion}"
     implementation 'net.lingala.zip4j:zip4j:2.11.5'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.80'
     implementation 'org.simpleflatmapper:sfm-csv:8.2.3'

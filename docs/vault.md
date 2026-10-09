@@ -71,7 +71,10 @@ __master key__.
 Aegis supports unlocking a vault with multiple different credentials. The main
 credential is a key derived from a user-provided password. In addition to that,
 users can also add a key backed by the Android KeyStore as a credential, which
-is only usable after biometrics authentication.
+is only usable after biometrics authentication. Finally, users can register any
+number of FIDO2 security keys, which provide a key through the CTAP2
+[hmac-secret](https://fidoalliance.org/specs/fido-v2.1-ps-20210615/fido-client-to-authenticator-protocol-v2.1-ps-20210615.html#sctn-hmac-secret-extension)
+extension.
 
 #### Slots
 
@@ -161,6 +164,10 @@ The different slot types are identified with a numerical ID.
 | Raw       | 0x00 |
 | Password  | 0x01 |
 | Biometric | 0x02 |
+| FIDO2     | 0x03 |
+
+_The FIDO2 slot type is specific to this fork of Aegis. Versions of Aegis that
+don't know about it refuse to load a vault that contains a FIDO2 slot._
 
 ##### Raw
 
@@ -213,6 +220,56 @@ parameters.
     "salt": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 }
 ```
+
+##### FIDO2
+
+FIDO2 slots wrap the master key with a key obtained from a FIDO2 security key
+through the CTAP2 __hmac-secret__ extension. When a security key is registered,
+Aegis creates a non-discoverable credential with the hmac-secret extension
+enabled for the relying party ID ``rp_id``, and generates a random 256-bit
+``salt``. The 32-byte output of hmac-secret for that credential and salt (as
+the only salt, ``salt1``) is used directly as the AES-256 key to wrap the master
+key. hmac-secret computes HMAC-SHA-256 with a random secret that never leaves
+the security key, so the output is suitable as a key without further
+derivation.
+
+Security keys produce a different hmac-secret output depending on whether user
+verification was performed. If the security key has a PIN, it's required during
+registration and every unlock, and ``uv`` is set to ``true``. Otherwise, ``uv``
+is ``false`` and only a touch is needed.
+
+Note that this is the raw CTAP2 extension, not the WebAuthn PRF extension, which
+hashes its input before passing it to the security key. The key can be obtained
+again with any CTAP2 client library, like
+[libfido2](https://github.com/Yubico/libfido2) or
+[python-fido2](https://github.com/Yubico/python-fido2), given the
+``credential_id``, ``rp_id`` and ``salt``. ``name`` is a user-chosen label for
+the security key and ``created`` is the time it was registered at, in
+milliseconds since the Unix epoch.
+
+```json
+{
+    "type": 3,
+    "uuid": "01234567-89ab-cdef-0123-456789abcdef",
+    "key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "key_params": {
+        "nonce": "0123456789abcdef01234567",
+        "tag": "0123456789abcdef0123456789abcdef"
+    },
+    "name": "YubiKey 5 NFC",
+    "rp_id": "com.beemdevelopment.aegis",
+    "credential_id": "0123456789abcdef...",
+    "salt": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "uv": true,
+    "created": 1760000000000
+}
+```
+
+Unlike biometric slots, FIDO2 slots are always included in backups and exports
+of the vault, even if a separate backup password is set. As such, a backup can
+be decrypted with any security key that was registered at the time the backup
+was created. Removing a security key from the
+vault doesn't affect backups that were created before.
 
 ### Vault content
 
