@@ -25,6 +25,8 @@ import androidx.annotation.StringRes;
 import androidx.appcompat.app.AlertDialog;
 import androidx.lifecycle.DefaultLifecycleObserver;
 import androidx.lifecycle.LifecycleOwner;
+import androidx.lifecycle.ViewModel;
+import androidx.lifecycle.ViewModelProvider;
 
 import com.beemdevelopment.aegis.R;
 import com.beemdevelopment.aegis.crypto.MasterKey;
@@ -62,6 +64,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * A dialog that guides the user through registering a security key or unlocking the vault with one.
  * It listens for security keys over USB and NFC, asks for the PIN of the key if needed and runs the
  * CTAP2 operations in the background.
+ *
+ * The dialog survives configuration changes of its activity, like a rotation of the screen. It keeps
+ * its state and any operation that's in progress, and shows itself again as soon as the recreated
+ * activity calls {@link #restoreEnroll} or {@link #restoreUnlock}. If it doesn't, the dialog is closed.
  */
 public class SecurityKeyDialog<T> {
     private static final String TAG = SecurityKeyDialog.class.getSimpleName();
@@ -108,13 +114,49 @@ public class SecurityKeyDialog<T> {
         T run(Fido2HmacSecret fido, @Nullable char[] pin, Fido2CommandState state, boolean nfc) throws Exception;
     }
 
-    private final ComponentActivity _activity;
+    /**
+     * Keeps the dialog of an activity while the activity is recreated after a configuration change.
+     */
+    public static class Retainer extends ViewModel {
+        @Nullable
+        private SecurityKeyDialog<?> _retained;
+
+        @Override
+        protected void onCleared() {
+            if (_retained != null) {
+                _retained.close(false);
+            }
+        }
+    }
+
+    private final Class<T> _resultType;
+    @StringRes
+    private final int _titleId;
     private final Operation<T> _operation;
-    private final Listener<T> _listener;
     private final SecurityKeyConnector _connector;
     private final Handler _handler = new Handler(Looper.getMainLooper());
     private final LifecycleObserver _lifecycleObserver = new LifecycleObserver();
+    private final SecurityKeyConnector.Listener _deviceListener = new SecurityKeyConnector.Listener() {
+        @Override
+        public void onDevice(YubiKeyDevice device) {
+            onDeviceConnected(device);
+        }
 
+        @Override
+        public void onUsbPermissionPending() {
+            if (!_busy && !_awaitingPin) {
+                setHint(_activity.getString(R.string.security_key_hint_usb_permission), false);
+            }
+        }
+    };
+
+    // replaced when the activity is recreated
+    private ComponentActivity _activity;
+    private Listener<T> _listener;
+    private Retainer _retainer;
+
+    // the views are null while the activity is being recreated
+    @Nullable
     private AlertDialog _dialog;
     private ImageView _imgKey;
     private CircularProgressIndicator _progress;
@@ -123,6 +165,19 @@ public class SecurityKeyDialog<T> {
     private TextInputLayout _pinLayout;
     private TextInputEditText _textPin;
     private Button _buttonPositive;
+
+    // what the views show, so that it can be shown again after the activity has been recreated
+    @Nullable
+    private String _status;
+    @Nullable
+    private String _hint;
+    private boolean _hintError;
+    @Nullable
+    private String _pinError;
+    @Nullable
+    private String _pinHelper;
+    @StringRes
+    private int _buttonTextId;
 
     private boolean _usbSupported;
     private SecurityKeyConnector.NfcState _nfcState = SecurityKeyConnector.NfcState.UNAVAILABLE;
@@ -140,10 +195,15 @@ public class SecurityKeyDialog<T> {
     private boolean _awaitingPin;
     private boolean _succeeded;
     private boolean _closed;
-    private boolean _silentDismiss;
+    // the result of an operation that finished while the activity was being recreated
+    @Nullable
+    private Runnable _pendingResult;
 
-    private SecurityKeyDialog(ComponentActivity activity, Operation<T> operation, Listener<T> listener) {
+    private SecurityKeyDialog(ComponentActivity activity, Class<T> resultType, @StringRes int titleId,
+                              Operation<T> operation, Listener<T> listener) {
         _activity = activity;
+        _resultType = resultType;
+        _titleId = titleId;
         _operation = operation;
         _listener = listener;
         _connector = new SecurityKeyConnector(activity);
@@ -186,9 +246,19 @@ public class SecurityKeyDialog<T> {
             }
         };
 
-        SecurityKeyDialog<Fido2Slot> dialog = new SecurityKeyDialog<>(activity, operation, listener);
-        dialog.show(R.string.security_key_enroll_title);
+        SecurityKeyDialog<Fido2Slot> dialog = new SecurityKeyDialog<>(activity, Fido2Slot.class,
+                R.string.security_key_enroll_title, operation, listener);
+        dialog.show();
         return dialog;
+    }
+
+    /**
+     * Shows the dialog of {@link #showEnroll} again if it was open when the given activity was
+     * recreated after a configuration change. Returns null if there's no such dialog.
+     */
+    @Nullable
+    public static SecurityKeyDialog<Fido2Slot> restoreEnroll(ComponentActivity activity, Listener<Fido2Slot> listener) {
+        return restore(activity, Fido2Slot.class, listener);
     }
 
     /**
@@ -207,8 +277,40 @@ public class SecurityKeyDialog<T> {
             }
         };
 
-        SecurityKeyDialog<UnlockResult> dialog = new SecurityKeyDialog<>(activity, operation, listener);
-        dialog.show(R.string.security_key_unlock_title);
+        SecurityKeyDialog<UnlockResult> dialog = new SecurityKeyDialog<>(activity, UnlockResult.class,
+                R.string.security_key_unlock_title, operation, listener);
+        dialog.show();
+        return dialog;
+    }
+
+    /**
+     * Shows the dialog of {@link #showUnlock} again if it was open when the given activity was
+     * recreated after a configuration change. Returns null if there's no such dialog.
+     */
+    @Nullable
+    public static SecurityKeyDialog<UnlockResult> restoreUnlock(ComponentActivity activity, Listener<UnlockResult> listener) {
+        return restore(activity, UnlockResult.class, listener);
+    }
+
+    @Nullable
+    @SuppressWarnings("unchecked")
+    private static <T> SecurityKeyDialog<T> restore(ComponentActivity activity, Class<T> resultType, Listener<T> listener) {
+        Retainer retainer = new ViewModelProvider(activity).get(Retainer.class);
+        SecurityKeyDialog<?> retained = retainer._retained;
+        // only a dialog that was removed from the previous instance of the activity can be shown again
+        if (retained == null || retained._resultType != resultType || retained._dialog != null || retained._closed) {
+            return null;
+        }
+
+        SecurityKeyDialog<T> dialog = (SecurityKeyDialog<T>) retained;
+        dialog._activity = activity;
+        dialog._listener = listener;
+        dialog.attach();
+
+        if (dialog._pendingResult != null) {
+            dialog._handler.post(dialog._pendingResult);
+            dialog._pendingResult = null;
+        }
         return dialog;
     }
 
@@ -216,13 +318,32 @@ public class SecurityKeyDialog<T> {
         return _dialog != null && _dialog.isShowing();
     }
 
+    /**
+     * Closes the dialog and stops listening for security keys.
+     */
     public void dismiss() {
-        if (_dialog != null) {
-            _dialog.dismiss();
-        }
+        close(true);
     }
 
-    private void show(@StringRes int titleId) {
+    private void show() {
+        _retainer = new ViewModelProvider(_activity).get(Retainer.class);
+        _retainer._retained = this;
+        _usbSupported = SecurityKeyConnector.isUsbHostSupported(_activity);
+
+        attach();
+        if (!_usbSupported && _nfcState == SecurityKeyConnector.NfcState.UNAVAILABLE) {
+            setStatus(_activity.getString(R.string.security_key_status_no_transport));
+            return;
+        }
+
+        showWaiting(false);
+        _connector.startUsb(_deviceListener);
+    }
+
+    /**
+     * Shows the dialog in the current activity and starts listening for security keys over NFC there.
+     */
+    private void attach() {
         View view = LayoutInflater.from(_activity).inflate(R.layout.dialog_security_key, null);
         _imgKey = view.findViewById(R.id.img_security_key);
         _progress = view.findViewById(R.id.progress_security_key);
@@ -238,47 +359,100 @@ public class SecurityKeyDialog<T> {
             return false;
         });
 
-        _dialog = new MaterialAlertDialogBuilder(_activity)
-                .setTitle(titleId)
+        AlertDialog dialog = new MaterialAlertDialogBuilder(_activity)
+                .setTitle(_titleId)
                 .setView(view)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.security_key_continue, null)
                 .create();
-        _dialog.setCanceledOnTouchOutside(false);
-        _dialog.setOnDismissListener(d -> onDismissed());
-        _dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        Dialogs.showSecureDialog(_dialog);
+        dialog.setCanceledOnTouchOutside(false);
+        dialog.setOnDismissListener(d -> close(true));
+        dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        Dialogs.showSecureDialog(dialog);
+        _dialog = dialog;
 
         // the buttons are available as soon as show() returns
-        _buttonPositive = _dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        _buttonPositive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
         _buttonPositive.setOnClickListener(v -> onPositiveClicked());
-        _buttonPositive.setVisibility(View.GONE);
+
+        _textStatus.setText(_status);
+        renderHint();
+        renderButton();
+        renderBusy();
+        renderPinPrompt();
 
         _activity.getLifecycle().addObserver(_lifecycleObserver);
+        _nfcState = _connector.startNfc(_activity, _deviceListener);
+    }
 
-        SecurityKeyConnector.Listener listener = new SecurityKeyConnector.Listener() {
-            @Override
-            public void onDevice(YubiKeyDevice device) {
-                onDeviceConnected(device);
+    /**
+     * Removes the dialog from the activity, which is about to be recreated after a configuration
+     * change. The rest keeps running, so that the recreated activity can show the dialog again.
+     */
+    private void detach() {
+        // Android doesn't allow this anymore once the activity has been destroyed
+        _connector.stopNfc(_activity);
+        _activity.getLifecycle().removeObserver(_lifecycleObserver);
+        removeViews();
+
+        // the activity has been recreated by the time this runs, so if it didn't show the dialog again, nothing will
+        _handler.post(() -> {
+            if (_dialog == null) {
+                close(false);
             }
+        });
+    }
 
-            @Override
-            public void onUsbPermissionPending() {
-                if (!_busy && !_awaitingPin) {
-                    setHint(_activity.getString(R.string.security_key_hint_usb_permission), false);
-                }
-            }
-        };
+    /**
+     * Closes the dialog for good: cancels the current operation, stops listening for security keys
+     * and wipes the PIN.
+     */
+    private void close(boolean notifyCancelled) {
+        if (_closed) {
+            return;
+        }
+        _closed = true;
 
-        _usbSupported = SecurityKeyConnector.isUsbHostSupported(_activity);
-        _nfcState = _connector.startNfc(_activity, listener);
-        if (!_usbSupported && _nfcState == SecurityKeyConnector.NfcState.UNAVAILABLE) {
-            setStatus(_activity.getString(R.string.security_key_status_no_transport));
+        if (_retainer._retained == this) {
+            _retainer._retained = null;
+        }
+        if (_state != null) {
+            _state.cancel();
+            _state = null;
+        }
+        _pendingResult = null;
+        _connector.stopUsb();
+
+        // this happens synchronously, as the activity may no longer exist once a dismissed dialog reports it
+        if (_dialog != null) {
+            _connector.stopNfc(_activity);
+            _activity.getLifecycle().removeObserver(_lifecycleObserver);
+            removeViews();
+        }
+        wipePin();
+
+        if (notifyCancelled && !_succeeded) {
+            _listener.onCancelled();
+        }
+    }
+
+    private void removeViews() {
+        if (_dialog == null) {
             return;
         }
 
-        showWaiting(false);
-        _connector.startUsb(listener);
+        _textPin.setText("");
+        // the dismiss listener is called asynchronously, and the dialog has been taken care of already
+        _dialog.setOnDismissListener(null);
+        _dialog.dismiss();
+        _dialog = null;
+        _imgKey = null;
+        _progress = null;
+        _textStatus = null;
+        _textHint = null;
+        _pinLayout = null;
+        _textPin = null;
+        _buttonPositive = null;
     }
 
     private void onDeviceConnected(YubiKeyDevice device) {
@@ -293,7 +467,7 @@ public class SecurityKeyDialog<T> {
                 if (_usbDevice == usbDevice) {
                     _usbDevice = null;
                     if (!_busy && !_awaitingPin && !_closed) {
-                        _buttonPositive.setVisibility(View.GONE);
+                        setButton(0);
                     }
                 }
             }));
@@ -313,15 +487,13 @@ public class SecurityKeyDialog<T> {
             wipePin();
         }
 
-        _busy = true;
+        setBusy(true);
         _lastDevice = device;
         setStatus(_activity.getString(device instanceof UsbYubiKeyDevice
                 ? R.string.security_key_status_communicating
                 : R.string.security_key_status_communicating_nfc));
         setHint(null, false);
-        _progress.setVisibility(View.VISIBLE);
-        _imgKey.setVisibility(View.INVISIBLE);
-        _buttonPositive.setVisibility(View.GONE);
+        setButton(0);
 
         boolean nfc = !(device instanceof UsbYubiKeyDevice);
         Fido2CommandState state = new Fido2CommandState((step, reported) -> {
@@ -380,15 +552,18 @@ public class SecurityKeyDialog<T> {
         if (state != _state || _closed) {
             return;
         }
+        if (_dialog == null) {
+            // the activity is being recreated, so wait until it shows the dialog again
+            _pendingResult = () -> onResult(state, device, value, error);
+            return;
+        }
 
-        _busy = false;
         _state = null;
-        _progress.setVisibility(View.GONE);
-        _imgKey.setVisibility(View.VISIBLE);
+        setBusy(false);
 
         if (error == null) {
             _succeeded = true;
-            _dialog.dismiss();
+            close(false);
             _listener.onSuccess((T) value);
             return;
         }
@@ -613,48 +788,46 @@ public class SecurityKeyDialog<T> {
 
     private void showWaitingForConfirmation() {
         // keep the PIN, as it's needed again to obtain the secret
-        _awaitingPin = false;
-        _pinLayout.setVisibility(View.GONE);
-        _buttonPositive.setVisibility(View.GONE);
+        hidePinPrompt();
+        setButton(0);
         setStatus(_activity.getString(R.string.security_key_status_tap_again_finish));
         setHint(null, false);
     }
 
     private void showError(String message) {
         wipePin();
-        _awaitingPin = false;
-        _pinLayout.setVisibility(View.GONE);
+        hidePinPrompt();
         showWaiting(false);
         setHint(message, true);
 
         // offer to try again if the USB key is still connected
-        if (_usbDevice != null) {
-            _buttonPositive.setText(R.string.security_key_retry);
-            _buttonPositive.setVisibility(View.VISIBLE);
-        } else {
-            _buttonPositive.setVisibility(View.GONE);
-        }
+        setButton(_usbDevice != null ? R.string.security_key_retry : 0);
     }
 
     private void showPinPrompt(@Nullable String error, int retries) {
         _awaitingPin = true;
         _pinDevice = _lastDevice;
-        setStatus(_activity.getString(R.string.security_key_status_enter_pin));
-        setHint(null, false);
-
-        String helper = retries >= 0
+        _pinError = error;
+        _pinHelper = retries >= 0
                 ? _activity.getResources().getQuantityString(R.plurals.security_key_pin_retries, retries, retries)
                 : null;
-        _pinLayout.setVisibility(View.VISIBLE);
-        _pinLayout.setError(error);
-        _pinLayout.setHelperText(helper);
-        _textPin.setText("");
-        _textPin.requestFocus();
-        InputMethodManager imm = (InputMethodManager) _activity.getSystemService(Context.INPUT_METHOD_SERVICE);
-        _textPin.post(() -> imm.showSoftInput(_textPin, InputMethodManager.SHOW_IMPLICIT));
+        setStatus(_activity.getString(R.string.security_key_status_enter_pin));
+        setHint(null, false);
+        setButton(R.string.security_key_continue);
 
-        _buttonPositive.setText(R.string.security_key_continue);
-        _buttonPositive.setVisibility(View.VISIBLE);
+        if (_dialog != null) {
+            _textPin.setText("");
+            renderPinPrompt();
+        }
+    }
+
+    private void hidePinPrompt() {
+        _awaitingPin = false;
+        _pinError = null;
+        _pinHelper = null;
+        if (_dialog != null) {
+            renderPinPrompt();
+        }
     }
 
     private void onPositiveClicked() {
@@ -671,17 +844,15 @@ public class SecurityKeyDialog<T> {
             wipePin();
             _pin = pin;
             _textPin.setText("");
-            _awaitingPin = false;
-            _pinLayout.setVisibility(View.GONE);
-            _pinLayout.setError(null);
             InputMethodManager imm = (InputMethodManager) _activity.getSystemService(Context.INPUT_METHOD_SERVICE);
             imm.hideSoftInputFromWindow(_textPin.getWindowToken(), 0);
+            hidePinPrompt();
 
             // continue right away if the key is still plugged in, otherwise ask the user to tap it again
             if (_usbDevice != null && _pinDevice == _usbDevice) {
                 run(_usbDevice);
             } else {
-                _buttonPositive.setVisibility(View.GONE);
+                setButton(0);
                 showWaiting(true);
             }
         } else if (_usbDevice != null) {
@@ -689,43 +860,82 @@ public class SecurityKeyDialog<T> {
         }
     }
 
+    // The setters below remember what they show, and only update the views while the dialog is shown.
+
     private void setStatus(String status) {
-        _textStatus.setText(status);
+        _status = status;
+        if (_dialog != null) {
+            _textStatus.setText(status);
+        }
     }
 
     private void setHint(@Nullable String hint, boolean error) {
-        if (hint == null) {
+        _hint = hint;
+        _hintError = error;
+        if (_dialog != null) {
+            renderHint();
+        }
+    }
+
+    /**
+     * Shows the positive button with the given text, or hides it if the text is 0.
+     */
+    private void setButton(@StringRes int textId) {
+        _buttonTextId = textId;
+        if (_dialog != null) {
+            renderButton();
+        }
+    }
+
+    private void setBusy(boolean busy) {
+        _busy = busy;
+        if (_dialog != null) {
+            renderBusy();
+        }
+    }
+
+    private void renderHint() {
+        if (_hint == null) {
             _textHint.setVisibility(View.GONE);
             return;
         }
 
-        _textHint.setText(hint);
-        int colorAttr = error
+        _textHint.setText(_hint);
+        int colorAttr = _hintError
                 ? androidx.appcompat.R.attr.colorError
                 : com.google.android.material.R.attr.colorOnSurfaceVariant;
         _textHint.setTextColor(MaterialColors.getColor(_textHint, colorAttr));
         _textHint.setVisibility(View.VISIBLE);
     }
 
-    private void onDismissed() {
-        if (_closed) {
+    private void renderButton() {
+        if (_buttonTextId == 0) {
+            _buttonPositive.setVisibility(View.GONE);
             return;
         }
-        _closed = true;
 
-        if (_state != null) {
-            _state.cancel();
-            _state = null;
-        }
-        _connector.stopUsb();
-        _connector.stopNfc(_activity);
-        _activity.getLifecycle().removeObserver(_lifecycleObserver);
-        _textPin.setText("");
-        wipePin();
+        _buttonPositive.setText(_buttonTextId);
+        _buttonPositive.setVisibility(View.VISIBLE);
+    }
 
-        if (!_succeeded && !_silentDismiss) {
-            _listener.onCancelled();
+    private void renderBusy() {
+        _progress.setVisibility(_busy ? View.VISIBLE : View.GONE);
+        _imgKey.setVisibility(_busy ? View.INVISIBLE : View.VISIBLE);
+    }
+
+    private void renderPinPrompt() {
+        _pinLayout.setError(_pinError);
+        _pinLayout.setHelperText(_pinHelper);
+        if (!_awaitingPin) {
+            _pinLayout.setVisibility(View.GONE);
+            return;
         }
+
+        _pinLayout.setVisibility(View.VISIBLE);
+        TextInputEditText textPin = _textPin;
+        textPin.requestFocus();
+        InputMethodManager imm = (InputMethodManager) _activity.getSystemService(Context.INPUT_METHOD_SERVICE);
+        textPin.post(() -> imm.showSoftInput(textPin, InputMethodManager.SHOW_IMPLICIT));
     }
 
     private void wipePin() {
@@ -744,14 +954,17 @@ public class SecurityKeyDialog<T> {
         public void onStop(@NonNull LifecycleOwner owner) {
             // The USB permission prompt only pauses the activity, so don't dismiss on pause
             if (!_activity.isChangingConfigurations()) {
-                dismiss();
+                close(true);
             }
         }
 
         @Override
         public void onDestroy(@NonNull LifecycleOwner owner) {
-            _silentDismiss = true;
-            dismiss();
+            if (_activity.isChangingConfigurations()) {
+                detach();
+            } else {
+                close(false);
+            }
         }
     }
 }

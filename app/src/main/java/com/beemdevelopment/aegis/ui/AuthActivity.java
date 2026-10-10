@@ -175,6 +175,9 @@ public class AuthActivity extends AegisActivity {
             securityKeyButton.setVisibility(View.VISIBLE);
         }
 
+        // show the security key dialog again if it was open before the activity was recreated
+        _securityKeyDialog = SecurityKeyDialog.restoreUnlock(this, new SecurityKeyListener());
+
         _decryptButton.setOnClickListener(v -> {
             InputMethodManager imm = (InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE);
             imm.hideSoftInputFromWindow(v.getWindowToken(), 0);
@@ -337,17 +340,7 @@ public class AuthActivity extends AegisActivity {
             _bioPrompt = null;
         }
 
-        _securityKeyDialog = SecurityKeyDialog.showUnlock(this, _fido2Slots, new SecurityKeyDialog.Listener<SecurityKeyDialog.UnlockResult>() {
-            @Override
-            public void onSuccess(SecurityKeyDialog.UnlockResult result) {
-                finish(result.getKey(), false);
-            }
-
-            @Override
-            public void onAttemptFailed(Fido2Exception e) {
-                _auditLogRepository.addVaultUnlockFailedSecurityKeyEvent();
-            }
-        });
+        _securityKeyDialog = SecurityKeyDialog.showUnlock(this, _fido2Slots, new SecurityKeyListener());
     }
 
     private void finish(MasterKey key, boolean isSlotRepaired) {
@@ -418,6 +411,18 @@ public class AuthActivity extends AegisActivity {
                 _auditLogRepository.addVaultUnlockFailedPasswordEvent();
                 onInvalidPassword();
             }
+        }
+    }
+
+    private class SecurityKeyListener implements SecurityKeyDialog.Listener<SecurityKeyDialog.UnlockResult> {
+        @Override
+        public void onSuccess(SecurityKeyDialog.UnlockResult result) {
+            finish(result.getKey(), false);
+        }
+
+        @Override
+        public void onAttemptFailed(Fido2Exception e) {
+            _auditLogRepository.addVaultUnlockFailedSecurityKeyEvent();
         }
     }
 

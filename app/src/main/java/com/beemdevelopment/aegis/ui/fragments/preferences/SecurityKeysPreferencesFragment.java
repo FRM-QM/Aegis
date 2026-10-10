@@ -38,6 +38,9 @@ public class SecurityKeysPreferencesFragment extends PreferencesFragment {
             startAddSecurityKey(null);
             return true;
         });
+
+        // show the registration dialog again if it was open before the activity was recreated
+        SecurityKeyDialog.restoreEnroll(requireActivity(), this::onSecurityKeyEnrolled);
     }
 
     @Override
@@ -113,20 +116,22 @@ public class SecurityKeysPreferencesFragment extends PreferencesFragment {
         VaultFileCredentials creds = _vaultManager.getVault().getCredentials();
         List<Fido2Slot> existing = creds.getSlots().findAll(Fido2Slot.class);
 
-        SecurityKeyDialog.showEnroll(requireActivity(), name, creds.getKey(), existing, slot -> {
-            VaultFileCredentials newCreds = _vaultManager.getVault().getCredentials();
-            newCreds.getSlots().add(slot);
-            _vaultManager.getVault().setCredentials(newCreds);
-            if (!isAdded()) {
-                saveVault();
-                return;
-            }
+        SecurityKeyDialog.showEnroll(requireActivity(), name, creds.getKey(), existing, this::onSecurityKeyEnrolled);
+    }
 
-            if (saveAndBackupVault()) {
-                Toast.makeText(requireContext(), R.string.security_key_added, Toast.LENGTH_SHORT).show();
-            }
-            refreshSecurityKeys();
-        });
+    private void onSecurityKeyEnrolled(Fido2Slot slot) {
+        VaultFileCredentials creds = _vaultManager.getVault().getCredentials();
+        creds.getSlots().add(slot);
+        _vaultManager.getVault().setCredentials(creds);
+        if (!isAdded()) {
+            saveVault();
+            return;
+        }
+
+        if (saveAndBackupVault()) {
+            Toast.makeText(requireContext(), R.string.security_key_added, Toast.LENGTH_SHORT).show();
+        }
+        refreshSecurityKeys();
     }
 
     private void showSecurityKeyActions(UUID uuid) {

@@ -14,6 +14,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import android.widget.TextView;
+
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.espresso.contrib.RecyclerViewActions;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -92,6 +94,53 @@ public class SecurityKeysTest extends AegisTest {
     }
 
     @Test
+    public void testUnlockDialogSurvivesRecreation() {
+        initEncryptedVault();
+        addSecurityKey(KEY_NAME);
+        _vaultManager.lock(false);
+
+        try (ActivityScenario<AuthActivity> scenario = ActivityScenario.launch(AuthActivity.class)) {
+            onView(withId(R.id.button_security_key)).perform(click());
+            onView(withText(R.string.security_key_unlock_title)).check(matches(isDisplayed()));
+            CharSequence status = getText(R.id.text_security_key_status);
+
+            // like a rotation of the screen
+            scenario.recreate();
+            onView(withText(R.string.security_key_unlock_title)).check(matches(isDisplayed()));
+            assertEquals(status.toString(), getText(R.id.text_security_key_status).toString());
+
+            onView(withId(android.R.id.button2)).perform(click());
+            onView(withText(R.string.security_key_unlock_title)).check(doesNotExist());
+
+            // the dialog can be opened again
+            onView(withId(R.id.button_security_key)).perform(click());
+            onView(withText(R.string.security_key_unlock_title)).check(matches(isDisplayed()));
+            onView(withId(android.R.id.button2)).perform(click());
+        }
+    }
+
+    @Test
+    public void testEnrollDialogSurvivesRecreation() {
+        initEncryptedVault();
+
+        try (ActivityScenario<PreferencesActivity> scenario = ActivityScenario.launch(PreferencesActivity.class)) {
+            openSecurityKeys();
+            onView(withText(R.string.pref_security_key_add_title)).perform(click());
+            onView(withId(R.id.text_input)).perform(replaceText(KEY_NAME), closeSoftKeyboard());
+            onView(withId(android.R.id.button1)).perform(click());
+            onView(withText(R.string.security_key_enroll_title)).check(matches(isDisplayed()));
+
+            scenario.recreate();
+            onView(withText(R.string.security_key_enroll_title)).check(matches(isDisplayed()));
+
+            onView(withId(android.R.id.button2)).perform(click());
+            onView(withText(R.string.security_key_enroll_title)).check(doesNotExist());
+            onView(withText(R.string.pref_security_keys_empty)).check(matches(isDisplayed()));
+            assertTrue(getSecurityKeys().isEmpty());
+        }
+    }
+
+    @Test
     public void testNoSecurityKeyButtonWithoutSecurityKeys() {
         initEncryptedVault();
         _vaultManager.lock(false);
@@ -123,6 +172,17 @@ public class SecurityKeysTest extends AegisTest {
         } catch (VaultRepositoryException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static CharSequence getText(int viewId) {
+        CharSequence[] text = new CharSequence[1];
+        onView(withId(viewId)).check((view, e) -> {
+            if (e != null) {
+                throw e;
+            }
+            text[0] = ((TextView) view).getText();
+        });
+        return text[0];
     }
 
     private List<Fido2Slot> getSecurityKeys() {
