@@ -10,6 +10,8 @@ import com.yubico.yubikit.core.application.CommandState;
  */
 public class Fido2CommandState extends CommandState {
     public enum Step {
+        /** Setting up the connection, before any of the other steps started. */
+        CONNECT,
         REGISTER,
         CONFIRM,
         UNLOCK
@@ -24,7 +26,7 @@ public class Fido2CommandState extends CommandState {
 
     @Nullable
     private final Listener _listener;
-    private volatile Step _step = Step.UNLOCK;
+    private volatile Step _step = Step.CONNECT;
 
     public Fido2CommandState(@Nullable Listener listener) {
         _listener = listener;

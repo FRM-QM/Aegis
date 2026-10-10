@@ -29,6 +29,8 @@ public class Fido2Exception extends Exception {
         UV_MISMATCH,
         /** The authenticator returned a secret that does not decrypt the slot. */
         SECRET_MISMATCH,
+        /** The credential was created, but the authenticator has to be tapped again to obtain its secret. */
+        CONFIRM_REQUIRED,
         CANCELLED,
         TIMEOUT,
         DENIED,

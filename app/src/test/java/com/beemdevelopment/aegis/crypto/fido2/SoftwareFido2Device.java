@@ -57,12 +57,15 @@ public class SoftwareFido2Device implements Fido2Device {
     private boolean _silentAssertions = true;
     private boolean _omitSingleCredential;
     private int _credentialIdLength = 64;
+    private boolean _nfc;
+    private byte _nfcPresenceError = CtapException.ERR_OPERATION_DENIED;
 
     // state
     private char[] _pin;
     private int _pinRetries = MAX_PIN_RETRIES;
     private int _consecutivePinFailures;
     private boolean _powerCycleRequired;
+    private boolean _nfcUserPresent = true;
 
     // statistics
     private int _touches;
@@ -300,6 +303,16 @@ public class SoftwareFido2Device implements Fido2Device {
     }
 
     private void touch(@Nullable CommandState state) throws CtapException {
+        if (_nfc) {
+            // CTAP 2.1: placing the authenticator in the NFC field only counts as user presence once
+            if (!_nfcUserPresent) {
+                throw new CtapException(_nfcPresenceError);
+            }
+            _nfcUserPresent = false;
+            _touches++;
+            return;
+        }
+
         if (state != null) {
             state.onKeepAliveStatus(CommandState.STATUS_UPNEEDED);
             if (state.waitForCancel(0)) {
@@ -413,6 +426,32 @@ public class SoftwareFido2Device implements Fido2Device {
         _consecutivePinFailures = 0;
         _tokens.clear();
         _sharedSecrets.clear();
+    }
+
+    /**
+     * Simulates communicating with the authenticator over NFC, where user presence is only
+     * granted once per tap. See {@link #tap()}.
+     */
+    public SoftwareFido2Device setNfc(boolean nfc) {
+        _nfc = nfc;
+        return this;
+    }
+
+    /**
+     * Sets the error that is returned over NFC if user presence is needed again during the same tap.
+     * Authenticators return either OPERATION_DENIED or UP_REQUIRED (as specified by CTAP 2.1).
+     */
+    public SoftwareFido2Device setNfcPresenceError(byte error) {
+        _nfcPresenceError = error;
+        return this;
+    }
+
+    /**
+     * Simulates removing the authenticator from the NFC field and tapping it again.
+     */
+    public void tap() {
+        powerCycle();
+        _nfcUserPresent = true;
     }
 
     public int getTouches() {

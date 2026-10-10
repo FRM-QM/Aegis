@@ -54,6 +54,7 @@
         android:layout_marginTop="12dp"
         android:accessibilityLiveRegion="polite"
         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+        android:textIsSelectable="true"
         android:visibility="gone" />
 
     <com.google.android.material.textfield.TextInputLayout

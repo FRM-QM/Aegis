@@ -40,6 +40,9 @@ public class SecurityKeyConnector {
     public SecurityKeyConnector(Context context) {
         _context = context.getApplicationContext();
         _manager = new YubiKitManager(_context);
+
+        // this has to happen after the YubiKitManager was created, as that registers the default handlers
+        FidoUsbConnectionHandler.register();
     }
 
     public static boolean isUsbHostSupported(Context context) {

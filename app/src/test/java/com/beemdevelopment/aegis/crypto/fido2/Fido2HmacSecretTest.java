@@ -8,6 +8,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.yubico.yubikit.core.fido.CtapException;
 import com.yubico.yubikit.core.util.Pair;
 
 import org.junit.Test;
@@ -322,6 +323,101 @@ public class Fido2HmacSecretTest {
         new Fido2HmacSecret(device).unlock(Collections.singletonList(enrollment), null, state);
 
         assertEquals(Arrays.asList(Fido2CommandState.Step.REGISTER, Fido2CommandState.Step.CONFIRM, Fido2CommandState.Step.UNLOCK), steps);
+    }
+
+    @Test
+    public void testEnrollOverNfcRequiresSecondTap() throws Fido2Exception, IOException {
+        SoftwareFido2Device device = new SoftwareFido2Device().setNfc(true);
+
+        // a single tap only grants user presence for a single command
+        Fido2Exception e = assertThrows(Fido2Exception.class, () -> enroll(device, Collections.emptyList(), null));
+        assertEquals(Fido2Exception.Reason.DENIED, e.getReason());
+        assertFalse(e.isAuditable());
+
+        device.tap();
+        Fido2CommandState state = new Fido2CommandState(null);
+        assertEquals(Fido2CommandState.Step.CONNECT, state.getStep());
+        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), null, state);
+        assertEquals(Fido2CommandState.Step.REGISTER, state.getStep());
+        assertFalse(registration.isUv());
+
+        device.tap();
+        Fido2Enrollment enrollment = new Fido2HmacSecret(device).confirm(registration, null, state);
+        assertEquals(Fido2CommandState.Step.CONFIRM, state.getStep());
+        assertArrayEquals(registration.getCredentialId(), enrollment.getCredentialId());
+        assertEquals(32, enrollment.getSecret().length);
+
+        device.tap();
+        Pair<Fido2Enrollment, byte[]> res = unlock(device, Collections.singletonList(enrollment), null);
+        assertArrayEquals(enrollment.getSecret(), res.second);
+    }
+
+    @Test
+    public void testEnrollOverNfcWithPin() throws Fido2Exception, IOException {
+        SoftwareFido2Device device = new SoftwareFido2Device().setNfc(true).setPin(PIN);
+        Fido2CommandState state = new Fido2CommandState(null);
+
+        Fido2Exception e = assertThrows(Fido2Exception.class, () ->
+                new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), null, state));
+        assertEquals(Fido2Exception.Reason.PIN_REQUIRED, e.getReason());
+        assertEquals(0, device.getTouches());
+
+        device.tap();
+        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), PIN.toCharArray(), state);
+        assertTrue(registration.isUv());
+
+        device.tap();
+        Fido2Enrollment enrollment = new Fido2HmacSecret(device).confirm(registration, PIN.toCharArray(), state);
+        assertTrue(enrollment.isUv());
+        assertEquals(2, device.getTouches());
+
+        // unlocking only needs one tap once the PIN is known
+        device.tap();
+        Pair<Fido2Enrollment, byte[]> res = unlock(device, Collections.singletonList(enrollment), PIN.toCharArray());
+        assertArrayEquals(enrollment.getSecret(), res.second);
+        assertEquals(3, device.getTouches());
+    }
+
+    @Test
+    public void testConfirmWithOtherKey() throws Fido2Exception, IOException {
+        SoftwareFido2Device device = new SoftwareFido2Device().setNfc(true);
+        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), null, new Fido2CommandState(null));
+
+        SoftwareFido2Device other = new SoftwareFido2Device().setNfc(true);
+        Fido2CommandState state = new Fido2CommandState(null);
+        Fido2Exception e = assertThrows(Fido2Exception.class, () -> new Fido2HmacSecret(other).confirm(registration, null, state));
+        assertEquals(Fido2Exception.Reason.NOT_ENROLLED, e.getReason());
+        assertEquals(Fido2CommandState.Step.CONFIRM, state.getStep());
+
+        // the registration can still be confirmed with the right key
+        device.tap();
+        Fido2Enrollment enrollment = new Fido2HmacSecret(device).confirm(registration, null, state);
+        assertEquals(32, enrollment.getSecret().length);
+    }
+
+    @Test
+    public void testUnlockOverNfcSingleTap() throws Fido2Exception, IOException {
+        SoftwareFido2Device device = new SoftwareFido2Device().setNfc(true);
+        List<Fido2Enrollment> others = enrollOthers(3);
+        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", others, null, new Fido2CommandState(null));
+        device.tap();
+        Fido2Enrollment enrollment = new Fido2HmacSecret(device).confirm(registration, null, new Fido2CommandState(null));
+
+        // the preflight doesn't use up the user presence of the tap
+        List<Fido2Enrollment> candidates = new ArrayList<>(others);
+        candidates.add(enrollment);
+        device.tap();
+        Pair<Fido2Enrollment, byte[]> res = unlock(device, candidates, null);
+        assertSame(enrollment, res.first);
+        assertArrayEquals(enrollment.getSecret(), res.second);
+    }
+
+    @Test
+    public void testUpRequiredMapsToDenied() {
+        SoftwareFido2Device device = new SoftwareFido2Device().setNfc(true)
+                .setNfcPresenceError(CtapException.ERR_UP_REQUIRED);
+        Fido2Exception e = assertThrows(Fido2Exception.class, () -> enroll(device, Collections.emptyList(), null));
+        assertEquals(Fido2Exception.Reason.DENIED, e.getReason());
     }
 
     @Test

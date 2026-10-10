@@ -27,10 +27,12 @@ import java.util.Map;
 /**
  * Implements enrollment and unlocking with the CTAP2 hmac-secret extension.
  *
- * Enrollment creates a non-discoverable credential with hmac-secret enabled and immediately
- * obtains the hmac-secret output for a fresh random salt. Unlocking first finds out which of the
- * enrolled credentials belong to the connected authenticator (without requiring a touch) and then
- * obtains the hmac-secret output for the salt of that credential.
+ * Enrollment creates a non-discoverable credential with hmac-secret enabled and then obtains the
+ * hmac-secret output for a fresh random salt. Both steps require user presence. Over NFC, a tap
+ * only counts as user presence for a single command, so each step needs its own tap there.
+ * Unlocking first finds out which of the enrolled credentials belong to the connected
+ * authenticator (without requiring a touch) and then obtains the hmac-secret output for the salt
+ * of that credential.
  *
  * If the authenticator has a PIN, user verification is performed with the PIN during enrollment
  * and every unlock, because the hmac-secret output differs with and without user verification.
@@ -79,7 +81,9 @@ public class Fido2HmacSecret {
 
     /**
      * Creates a new credential on the authenticator and obtains its hmac-secret output for a fresh salt.
-     * This requires the user to touch the authenticator twice (except for NFC, where the tap suffices).
+     * This requires the user to touch the authenticator twice. Both steps need user presence, so this
+     * doesn't work over NFC, where a tap only counts as user presence once. Use {@link #register} and
+     * {@link #confirm} with a separate tap for each step instead.
      *
      * @param rpId the relying party ID to create the credential for.
      * @param name a name for the credential, which some authenticators may display.
@@ -89,7 +93,24 @@ public class Fido2HmacSecret {
      */
     public Fido2Enrollment enroll(String rpId, String name, List<? extends Fido2Credential> existing,
                                   @Nullable char[] pin, Fido2CommandState state) throws Fido2Exception, IOException {
+        Fido2Registration registration = register(rpId, name, existing, pin, state);
+        return confirm(registration, pin, state);
+    }
+
+    /**
+     * Creates a new credential on the authenticator. This requires the user to touch the authenticator once.
+     * Call {@link #confirm} afterwards to obtain its hmac-secret output.
+     *
+     * @param rpId the relying party ID to create the credential for.
+     * @param name a name for the credential, which some authenticators may display.
+     * @param existing the credentials that are already enrolled, used to detect duplicate enrollments.
+     * @param pin the PIN of the authenticator, or null if not known yet.
+     * @throws Fido2Exception with reason PIN_REQUIRED if the authenticator has a PIN and none was given.
+     */
+    public Fido2Registration register(String rpId, String name, List<? extends Fido2Credential> existing,
+                                      @Nullable char[] pin, Fido2CommandState state) throws Fido2Exception, IOException {
         checkSupported();
+        state.setStep(Fido2CommandState.Step.REGISTER);
 
         boolean uv = _info.isClientPinSet();
         if (_info.isAlwaysUv() && !uv) {
@@ -153,7 +174,6 @@ public class Fido2HmacSecret {
                 excludeList = toDescriptors(sameRp);
             }
 
-            state.setStep(Fido2CommandState.Step.REGISTER);
             authData = _device.makeCredential(clientDataHash, rp, user, Collections.singletonList(params),
                     excludeList, extensions, null, pinUvAuthParam, uv ? protocol.getVersion() : null, state);
         } catch (CommandException e) {
@@ -173,14 +193,30 @@ public class Fido2HmacSecret {
             throw new Fido2Exception(Fido2Exception.Reason.HMAC_SECRET_UNSUPPORTED);
         }
 
-        byte[] credentialId = credData.getCredentialId();
+        return new Fido2Registration(rpId, credData.getCredentialId(), uv);
+    }
+
+    /**
+     * Obtains the hmac-secret output of a credential that was just created with {@link #register},
+     * for a fresh salt. This requires the user to touch the authenticator once.
+     *
+     * @param pin the PIN of the authenticator, or null if not known yet.
+     * @throws Fido2Exception with reason NOT_ENROLLED if the credential doesn't belong to this authenticator.
+     */
+    public Fido2Enrollment confirm(Fido2Registration registration, @Nullable char[] pin,
+                                   Fido2CommandState state) throws Fido2Exception, IOException {
+        checkSupported();
+        state.setStep(Fido2CommandState.Step.CONFIRM);
+
+        String rpId = registration.getRpId();
+        byte[] credentialId = registration.getCredentialId();
+        boolean uv = registration.isUv();
         byte[] salt = randomBytes(SALT_SIZE);
         Fido2Enrollment enrollment = new Fido2Enrollment(rpId, credentialId, salt, uv, new byte[SECRET_SIZE]);
+        checkUv(enrollment);
 
-        state.setStep(Fido2CommandState.Step.CONFIRM);
         byte[] secret = getSecret(enrollment, pin, state);
-        enrollment = new Fido2Enrollment(rpId, credentialId, salt, uv, secret);
-        return enrollment;
+        return new Fido2Enrollment(rpId, credentialId, salt, uv, secret);
     }
 
     /**
@@ -445,6 +481,8 @@ public class Fido2HmacSecret {
             case CtapException.ERR_ACTION_TIMEOUT:
                 return new Fido2Exception(Fido2Exception.Reason.TIMEOUT, e);
             case CtapException.ERR_OPERATION_DENIED:
+            case CtapException.ERR_UP_REQUIRED:
+                // over NFC, this means that the tap was already used up by an earlier command
                 return new Fido2Exception(Fido2Exception.Reason.DENIED, e);
             case CtapException.ERR_UNSUPPORTED_EXTENSION:
                 return new Fido2Exception(Fido2Exception.Reason.HMAC_SECRET_UNSUPPORTED, e);

@@ -663,6 +663,7 @@
     <string name="security_key_status_insert_or_tap_again">Insert your security key or hold it against the back of your device again</string>
     <string name="security_key_status_tap">Hold your security key against the back of your device</string>
     <string name="security_key_status_tap_again">Hold your security key against the back of your device again</string>
+    <string name="security_key_status_tap_again_finish">Key registered. Hold your security key against the back of your device again to finish</string>
     <string name="security_key_status_insert">Insert your security key</string>
     <string name="security_key_status_communicating">Communicating with your security key…</string>
     <string name="security_key_status_communicating_nfc">Communicating with your security key. Keep holding it against your device…</string>
@@ -686,6 +687,7 @@
     <string name="security_key_error_unsupported_device">This device is not a FIDO2 security key</string>
     <string name="security_key_error_hmac_secret_unsupported">This security key doesn\'t support the hmac-secret extension, which is needed to encrypt the vault</string>
     <string name="security_key_error_not_enrolled">This security key is not registered for this vault</string>
+    <string name="security_key_error_confirm_other_key">This isn\'t the security key you just registered. Hold the same key against the back of your device.</string>
     <string name="security_key_error_already_enrolled">This security key is already registered</string>
     <string name="security_key_error_already_enrolled_name">This security key is already registered as \"%1$s\"</string>
     <string name="security_key_error_pin_not_set">This security key requires a PIN, but none has been set. Set a PIN with the tools of the manufacturer first.</string>
@@ -695,6 +697,8 @@
     <string name="security_key_error_cancelled">The operation was cancelled</string>
     <string name="security_key_error_timeout">The security key wasn\'t touched in time</string>
     <string name="security_key_error_denied">The security key denied the operation</string>
-    <string name="security_key_error_protocol">An error occurred while communicating with the security key: %1$s</string>
+    <string name="security_key_error_tap_not_accepted">The security key didn\'t accept the tap. Hold it against the back of your device again and keep it there until it\'s done.</string>
+    <string name="security_key_error_protocol">An error occurred while communicating with the security key</string>
     <string name="security_key_error_connection_lost">The connection to the security key was lost. Please try again.</string>
+    <string name="security_key_error_details">Details: %1$s</string>
 </resources>

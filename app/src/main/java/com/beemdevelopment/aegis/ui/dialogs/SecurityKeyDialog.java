@@ -1,8 +1,14 @@
 package com.beemdevelopment.aegis.ui.dialogs;
 
 import android.content.Context;
+import android.hardware.usb.UsbConstants;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbEndpoint;
+import android.hardware.usb.UsbInterface;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowManager;
@@ -27,6 +33,7 @@ import com.beemdevelopment.aegis.crypto.fido2.Fido2Credential;
 import com.beemdevelopment.aegis.crypto.fido2.Fido2Enrollment;
 import com.beemdevelopment.aegis.crypto.fido2.Fido2Exception;
 import com.beemdevelopment.aegis.crypto.fido2.Fido2HmacSecret;
+import com.beemdevelopment.aegis.crypto.fido2.Fido2Registration;
 import com.beemdevelopment.aegis.crypto.fido2.YubiKitFido2Device;
 import com.beemdevelopment.aegis.helpers.EditTextHelper;
 import com.beemdevelopment.aegis.helpers.SecurityKeyConnector;
@@ -39,13 +46,17 @@ import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.yubico.yubikit.android.transport.usb.UsbYubiKeyDevice;
 import com.yubico.yubikit.core.YubiKeyDevice;
+import com.yubico.yubikit.core.fido.CtapException;
 import com.yubico.yubikit.core.fido.FidoConnection;
 import com.yubico.yubikit.core.smartcard.SmartCardConnection;
 import com.yubico.yubikit.core.util.Pair;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A dialog that guides the user through registering a security key or unlocking the vault with one.
@@ -53,6 +64,9 @@ import java.util.List;
  * CTAP2 operations in the background.
  */
 public class SecurityKeyDialog<T> {
+    private static final String TAG = SecurityKeyDialog.class.getSimpleName();
+    private static final int MAX_ERROR_CAUSES = 4;
+
     public interface Listener<T> {
         void onSuccess(T result);
 
@@ -91,7 +105,7 @@ public class SecurityKeyDialog<T> {
     }
 
     private interface Operation<T> {
-        T run(Fido2HmacSecret fido, @Nullable char[] pin, Fido2CommandState state) throws Exception;
+        T run(Fido2HmacSecret fido, @Nullable char[] pin, Fido2CommandState state, boolean nfc) throws Exception;
     }
 
     private final ComponentActivity _activity;
@@ -140,8 +154,21 @@ public class SecurityKeyDialog<T> {
      */
     public static SecurityKeyDialog<Fido2Slot> showEnroll(ComponentActivity activity, String name, MasterKey masterKey,
                                                           List<Fido2Slot> existing, Listener<Fido2Slot> listener) {
-        Operation<Fido2Slot> operation = (fido, pin, state) -> {
-            Fido2Enrollment enrollment = fido.enroll(Fido2Slot.DEFAULT_RP_ID, name, existing, pin, state);
+        // the credential that was created on the key, if obtaining its secret is still pending
+        AtomicReference<Fido2Registration> pending = new AtomicReference<>();
+        Operation<Fido2Slot> operation = (fido, pin, state, nfc) -> {
+            Fido2Registration registration = pending.get();
+            if (registration == null) {
+                registration = fido.register(Fido2Slot.DEFAULT_RP_ID, name, existing, pin, state);
+                pending.set(registration);
+
+                // over NFC, a tap only counts as user presence for a single command, so obtaining the secret needs another tap
+                if (nfc) {
+                    throw new Fido2Exception(Fido2Exception.Reason.CONFIRM_REQUIRED);
+                }
+            }
+
+            Fido2Enrollment enrollment = fido.confirm(registration, pin, state);
             try {
                 Fido2Slot slot = new Fido2Slot(name, enrollment.getRpId(), enrollment.getCredentialId(),
                         enrollment.getSalt(), enrollment.isUv(), System.currentTimeMillis());
@@ -169,7 +196,7 @@ public class SecurityKeyDialog<T> {
      */
     public static SecurityKeyDialog<UnlockResult> showUnlock(ComponentActivity activity, List<Fido2Slot> candidates,
                                                              Listener<UnlockResult> listener) {
-        Operation<UnlockResult> operation = (fido, pin, state) -> {
+        Operation<UnlockResult> operation = (fido, pin, state, nfc) -> {
             Pair<Fido2Slot, byte[]> res = fido.unlock(candidates, pin, state);
             try {
                 return new UnlockResult(res.first, res.first.unwrap(res.second));
@@ -299,6 +326,7 @@ public class SecurityKeyDialog<T> {
         Fido2CommandState state = new Fido2CommandState(step -> _handler.post(() -> onTouchRequired(step)));
         _state = state;
         char[] pin = _pin != null ? _pin.clone() : null;
+        boolean nfc = !(device instanceof UsbYubiKeyDevice);
 
         try {
             if (device.supportsConnection(FidoConnection.class)) {
@@ -306,44 +334,44 @@ public class SecurityKeyDialog<T> {
                     Object value = null;
                     Exception error = null;
                     try {
-                        value = _operation.run(new Fido2HmacSecret(YubiKitFido2Device.open(result.getValue())), pin, state);
+                        value = _operation.run(new Fido2HmacSecret(YubiKitFido2Device.open(result.getValue())), pin, state, nfc);
                     } catch (Exception e) {
                         error = e;
                     } finally {
                         wipe(pin);
                     }
-                    postResult(state, value, error);
+                    postResult(state, device, value, error);
                 });
             } else if (device.supportsConnection(SmartCardConnection.class)) {
                 device.requestConnection(SmartCardConnection.class, result -> {
                     Object value = null;
                     Exception error = null;
                     try {
-                        value = _operation.run(new Fido2HmacSecret(YubiKitFido2Device.open(result.getValue())), pin, state);
+                        value = _operation.run(new Fido2HmacSecret(YubiKitFido2Device.open(result.getValue())), pin, state, nfc);
                     } catch (Exception e) {
                         error = e;
                     } finally {
                         wipe(pin);
                     }
-                    postResult(state, value, error);
+                    postResult(state, device, value, error);
                 });
             } else {
                 wipe(pin);
-                postResult(state, null, new Fido2Exception(Fido2Exception.Reason.UNSUPPORTED_DEVICE));
+                postResult(state, device, null, new Fido2Exception(Fido2Exception.Reason.UNSUPPORTED_DEVICE));
             }
         } catch (RuntimeException e) {
             // thrown if the device was removed or permission was revoked
             wipe(pin);
-            postResult(state, null, new IOException(e));
+            postResult(state, device, null, new IOException(e));
         }
     }
 
-    private void postResult(Fido2CommandState state, @Nullable Object value, @Nullable Exception error) {
-        _handler.post(() -> onResult(state, value, error));
+    private void postResult(Fido2CommandState state, YubiKeyDevice device, @Nullable Object value, @Nullable Exception error) {
+        _handler.post(() -> onResult(state, device, value, error));
     }
 
     @SuppressWarnings("unchecked")
-    private void onResult(Fido2CommandState state, @Nullable Object value, @Nullable Exception error) {
+    private void onResult(Fido2CommandState state, YubiKeyDevice device, @Nullable Object value, @Nullable Exception error) {
         if (state != _state || _closed) {
             return;
         }
@@ -361,25 +389,27 @@ public class SecurityKeyDialog<T> {
         }
 
         if (error instanceof Fido2Exception) {
-            onFido2Error((Fido2Exception) error);
-        } else if (error instanceof IOException) {
-            error.printStackTrace();
-            showError(_activity.getString(R.string.security_key_error_connection_lost));
-        } else {
-            error.printStackTrace();
-            showError(_activity.getString(R.string.security_key_error_protocol, error.toString()));
+            onFido2Error((Fido2Exception) error, state.getStep(), device);
+            return;
         }
+
+        String details = getErrorDetails(error, state.getStep(), device);
+        Log.e(TAG, String.format("Security key operation failed: %s", details), error);
+        int messageId = error instanceof IOException
+                ? R.string.security_key_error_connection_lost
+                : R.string.security_key_error_protocol;
+        showError(withDetails(_activity.getString(messageId), details));
     }
 
-    private void onFido2Error(Fido2Exception e) {
-        if (e.getReason() == Fido2Exception.Reason.PROTOCOL_ERROR) {
-            e.printStackTrace();
-        }
+    private void onFido2Error(Fido2Exception e, Fido2CommandState.Step step, YubiKeyDevice device) {
         if (e.isAuditable()) {
             _listener.onAttemptFailed(e);
         }
 
         switch (e.getReason()) {
+            case CONFIRM_REQUIRED:
+                showWaitingForConfirmation();
+                break;
             case PIN_REQUIRED:
                 showPinPrompt(null, e.getPinRetries());
                 break;
@@ -401,18 +431,33 @@ public class SecurityKeyDialog<T> {
                 showError(_activity.getString(R.string.security_key_error_pin_blocked));
                 break;
             default:
-                showError(getErrorMessage(e));
+                String message = getErrorMessage(e, step, device);
+                switch (e.getReason()) {
+                    case UNSUPPORTED_DEVICE:
+                    case HMAC_SECRET_UNSUPPORTED:
+                    case TIMEOUT:
+                    case DENIED:
+                    case PROTOCOL_ERROR:
+                        String details = getErrorDetails(e, step, device);
+                        Log.e(TAG, String.format("Security key operation failed: %s", details), e);
+                        message = withDetails(message, details);
+                        break;
+                }
+                showError(message);
                 break;
         }
     }
 
-    private String getErrorMessage(Fido2Exception e) {
+    private String getErrorMessage(Fido2Exception e, Fido2CommandState.Step step, YubiKeyDevice device) {
         switch (e.getReason()) {
             case UNSUPPORTED_DEVICE:
                 return _activity.getString(R.string.security_key_error_unsupported_device);
             case HMAC_SECRET_UNSUPPORTED:
                 return _activity.getString(R.string.security_key_error_hmac_secret_unsupported);
             case NOT_ENROLLED:
+                if (step == Fido2CommandState.Step.CONFIRM) {
+                    return _activity.getString(R.string.security_key_error_confirm_other_key);
+                }
                 return _activity.getString(R.string.security_key_error_not_enrolled);
             case ALREADY_ENROLLED:
                 Fido2Credential cred = e.getCredential();
@@ -433,10 +478,94 @@ public class SecurityKeyDialog<T> {
             case TIMEOUT:
                 return _activity.getString(R.string.security_key_error_timeout);
             case DENIED:
+                // there's no way to deny an operation over NFC, so the key didn't consider the tap as user presence
+                if (!(device instanceof UsbYubiKeyDevice)) {
+                    return _activity.getString(R.string.security_key_error_tap_not_accepted);
+                }
                 return _activity.getString(R.string.security_key_error_denied);
             default:
-                Throwable cause = e.getCause() != null ? e.getCause() : e;
-                return _activity.getString(R.string.security_key_error_protocol, cause.toString());
+                return _activity.getString(R.string.security_key_error_protocol);
+        }
+    }
+
+    private String withDetails(String message, String details) {
+        return message + "\n\n" + _activity.getString(R.string.security_key_error_details, details);
+    }
+
+    /**
+     * Describes an error in a way that helps to diagnose problems with specific security keys.
+     * The result doesn't contain any secrets.
+     */
+    private static String getErrorDetails(Throwable error, Fido2CommandState.Step step, YubiKeyDevice device) {
+        List<String> parts = new ArrayList<>();
+        parts.add("step: " + step.toString().toLowerCase(Locale.ROOT));
+
+        List<String> causes = new ArrayList<>();
+        Throwable cause = error;
+        while (cause != null && causes.size() < MAX_ERROR_CAUSES) {
+            String desc;
+            if (cause instanceof CtapException) {
+                desc = String.format(Locale.ROOT, "CTAP 0x%02X", ((CtapException) cause).getCtapError() & 0xFF);
+            } else if (cause instanceof Fido2Exception) {
+                desc = ((Fido2Exception) cause).getReason().toString();
+            } else {
+                desc = cause.getMessage() != null
+                        ? cause.getClass().getSimpleName() + ": " + cause.getMessage()
+                        : cause.getClass().getSimpleName();
+            }
+            if (!causes.contains(desc)) {
+                causes.add(desc);
+            }
+            cause = cause.getCause() != cause ? cause.getCause() : null;
+        }
+        parts.add(TextUtils.join(" / ", causes));
+
+        if (device instanceof UsbYubiKeyDevice) {
+            parts.add(describeUsbDevice(((UsbYubiKeyDevice) device).getUsbDevice()));
+        } else {
+            parts.add("nfc");
+        }
+
+        return TextUtils.join("; ", parts);
+    }
+
+    /**
+     * Describes the USB IDs and the interfaces of a USB device, for example:
+     * "usb 1050:0407, if0 03/00/00 [int in 64, int out 64]".
+     */
+    private static String describeUsbDevice(UsbDevice device) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(Locale.ROOT, "usb %04x:%04x", device.getVendorId(), device.getProductId()));
+        for (int i = 0; i < device.getInterfaceCount(); i++) {
+            UsbInterface usbInterface = device.getInterface(i);
+            sb.append(String.format(Locale.ROOT, ", if%d %02x/%02x/%02x [", usbInterface.getId(), usbInterface.getInterfaceClass(),
+                    usbInterface.getInterfaceSubclass(), usbInterface.getInterfaceProtocol()));
+            for (int j = 0; j < usbInterface.getEndpointCount(); j++) {
+                UsbEndpoint endpoint = usbInterface.getEndpoint(j);
+                if (j > 0) {
+                    sb.append(", ");
+                }
+                sb.append(String.format(Locale.ROOT, "%s %s %d", getEndpointTypeName(endpoint.getType()),
+                        endpoint.getDirection() == UsbConstants.USB_DIR_IN ? "in" : "out",
+                        endpoint.getMaxPacketSize()));
+            }
+            sb.append("]");
+        }
+        return sb.toString();
+    }
+
+    private static String getEndpointTypeName(int type) {
+        switch (type) {
+            case UsbConstants.USB_ENDPOINT_XFER_CONTROL:
+                return "ctrl";
+            case UsbConstants.USB_ENDPOINT_XFER_ISOC:
+                return "isoc";
+            case UsbConstants.USB_ENDPOINT_XFER_BULK:
+                return "bulk";
+            case UsbConstants.USB_ENDPOINT_XFER_INT:
+                return "int";
+            default:
+                return String.valueOf(type);
         }
     }
 
@@ -475,6 +604,15 @@ public class SecurityKeyDialog<T> {
         } else {
             setHint(null, false);
         }
+    }
+
+    private void showWaitingForConfirmation() {
+        // keep the PIN, as it's needed again to obtain the secret
+        _awaitingPin = false;
+        _pinLayout.setVisibility(View.GONE);
+        _buttonPositive.setVisibility(View.GONE);
+        setStatus(_activity.getString(R.string.security_key_status_tap_again_finish));
+        setHint(null, false);
     }
 
     private void showError(String message) {

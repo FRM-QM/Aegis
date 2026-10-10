@@ -236,7 +236,10 @@ derivation.
 Security keys produce a different hmac-secret output depending on whether user
 verification was performed. If the security key has a PIN, it's required during
 registration and every unlock, and ``uv`` is set to ``true``. Otherwise, ``uv``
-is ``false`` and only a touch is needed.
+is ``false`` and only a touch is needed. Registration needs user presence twice:
+once to create the credential and once to obtain the hmac-secret output. Over
+NFC, CTAP 2.1 only counts a tap as user presence for a single command, so the
+security key has to be tapped twice there.
 
 Note that this is the raw CTAP2 extension, not the WebAuthn PRF extension, which
 hashes its input before passing it to the security key. The key can be obtained
