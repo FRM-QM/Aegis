@@ -59,6 +59,7 @@ public class SoftwareFido2Device implements Fido2Device {
     private int _credentialIdLength = 64;
     private boolean _nfc;
     private byte _nfcPresenceError = CtapException.ERR_OPERATION_DENIED;
+    private boolean _reportUpNeeded = true;
 
     // state
     private char[] _pin;
@@ -314,7 +315,9 @@ public class SoftwareFido2Device implements Fido2Device {
         }
 
         if (state != null) {
-            state.onKeepAliveStatus(CommandState.STATUS_UPNEEDED);
+            if (_reportUpNeeded) {
+                state.onKeepAliveStatus(CommandState.STATUS_UPNEEDED);
+            }
             if (state.waitForCancel(0)) {
                 throw new CtapException(CtapException.ERR_KEEPALIVE_CANCEL);
             }
@@ -443,6 +446,15 @@ public class SoftwareFido2Device implements Fido2Device {
      */
     public SoftwareFido2Device setNfcPresenceError(byte error) {
         _nfcPresenceError = error;
+        return this;
+    }
+
+    /**
+     * Sets whether the authenticator reports that it's waiting for a touch. Some authenticators
+     * only report that they're processing a command instead.
+     */
+    public SoftwareFido2Device setReportUpNeeded(boolean report) {
+        _reportUpNeeded = report;
         return this;
     }
 

@@ -323,10 +323,15 @@ public class SecurityKeyDialog<T> {
         _imgKey.setVisibility(View.INVISIBLE);
         _buttonPositive.setVisibility(View.GONE);
 
-        Fido2CommandState state = new Fido2CommandState(step -> _handler.post(() -> onTouchRequired(step)));
+        boolean nfc = !(device instanceof UsbYubiKeyDevice);
+        Fido2CommandState state = new Fido2CommandState((step, reported) -> {
+            // over NFC, the tap counts as the touch, so only ask for one if the key explicitly waits for it
+            if (reported || !nfc) {
+                _handler.post(() -> onTouchRequired(step));
+            }
+        });
         _state = state;
         char[] pin = _pin != null ? _pin.clone() : null;
-        boolean nfc = !(device instanceof UsbYubiKeyDevice);
 
         try {
             if (device.supportsConnection(FidoConnection.class)) {

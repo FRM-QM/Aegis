@@ -174,6 +174,7 @@ public class Fido2HmacSecret {
                 excludeList = toDescriptors(sameRp);
             }
 
+            state.onTouchCommand();
             authData = _device.makeCredential(clientDataHash, rp, user, Collections.singletonList(params),
                     excludeList, extensions, null, pinUvAuthParam, uv ? protocol.getVersion() : null, state);
         } catch (CommandException e) {
@@ -363,6 +364,7 @@ public class Fido2HmacSecret {
                 input.put(4, protocol.getVersion());
             }
 
+            state.onTouchCommand();
             List<Fido2Assertion> assertions = _device.getAssertions(cred.getRpId(), clientDataHash,
                     toDescriptors(Collections.singletonList(cred)), Collections.singletonMap(EXT_HMAC_SECRET, input),
                     null, pinUvAuthParam, cred.isUv() ? protocol.getVersion() : null, state);

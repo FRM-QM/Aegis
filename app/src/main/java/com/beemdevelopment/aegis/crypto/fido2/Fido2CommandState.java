@@ -5,8 +5,8 @@ import androidx.annotation.Nullable;
 import com.yubico.yubikit.core.application.CommandState;
 
 /**
- * A CommandState that reports when the authenticator is waiting for the user to touch it and
- * which step of the process the touch is for. Call {@link #cancel()} to abort a pending command.
+ * A CommandState that reports when the user has to touch the authenticator and which step of the
+ * process the touch is for. Call {@link #cancel()} to abort a pending command.
  */
 public class Fido2CommandState extends CommandState {
     public enum Step {
@@ -20,8 +20,14 @@ public class Fido2CommandState extends CommandState {
     public interface Listener {
         /**
          * Called on the thread that communicates with the authenticator, possibly many times per step.
+         *
+         * @param reported Whether the authenticator reported that it's waiting for a touch. If false, a
+         *                 command that requires a touch is about to be sent. Over USB, that's the only
+         *                 reliable signal, because not every authenticator reports that it's waiting.
+         *                 Over NFC, holding the authenticator against the device already counts as a
+         *                 touch, so the user only has to do something else if the authenticator says so.
          */
-        void onTouchRequired(Step step);
+        void onTouchRequired(Step step, boolean reported);
     }
 
     @Nullable
@@ -40,10 +46,19 @@ public class Fido2CommandState extends CommandState {
         _step = step;
     }
 
+    /**
+     * Called right before a command is sent that requires the user to touch the authenticator.
+     */
+    void onTouchCommand() {
+        if (_listener != null) {
+            _listener.onTouchRequired(_step, false);
+        }
+    }
+
     @Override
     public void onKeepAliveStatus(byte status) {
         if (status == STATUS_UPNEEDED && _listener != null) {
-            _listener.onTouchRequired(_step);
+            _listener.onTouchRequired(_step, true);
         }
     }
 }

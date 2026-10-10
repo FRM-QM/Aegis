@@ -301,28 +301,46 @@ public class Fido2HmacSecretTest {
     @Test
     public void testCancel() {
         SoftwareFido2Device device = new SoftwareFido2Device();
-        List<Fido2CommandState.Step> steps = new ArrayList<>();
+        List<String> events = new ArrayList<>();
         Fido2CommandState[] state = new Fido2CommandState[1];
-        state[0] = new Fido2CommandState(step -> {
-            steps.add(step);
+        state[0] = new Fido2CommandState((step, reported) -> {
+            events.add(describeTouch(step, reported));
             state[0].cancel();
         });
 
         Fido2Exception e = assertThrows(Fido2Exception.class, () ->
                 new Fido2HmacSecret(device).enroll(RP_ID, "test", Collections.emptyList(), null, state[0]));
         assertEquals(Fido2Exception.Reason.CANCELLED, e.getReason());
-        assertEquals(Collections.singletonList(Fido2CommandState.Step.REGISTER), steps);
+        assertEquals(Arrays.asList("REGISTER command", "REGISTER reported"), events);
+        assertEquals(0, device.getTouches());
     }
 
     @Test
     public void testTouchSteps() throws Fido2Exception, IOException {
         SoftwareFido2Device device = new SoftwareFido2Device();
-        List<Fido2CommandState.Step> steps = new ArrayList<>();
-        Fido2CommandState state = new Fido2CommandState(steps::add);
+        List<String> events = new ArrayList<>();
+        Fido2CommandState state = new Fido2CommandState((step, reported) -> events.add(describeTouch(step, reported)));
         Fido2Enrollment enrollment = new Fido2HmacSecret(device).enroll(RP_ID, "test", Collections.emptyList(), null, state);
         new Fido2HmacSecret(device).unlock(Collections.singletonList(enrollment), null, state);
 
-        assertEquals(Arrays.asList(Fido2CommandState.Step.REGISTER, Fido2CommandState.Step.CONFIRM, Fido2CommandState.Step.UNLOCK), steps);
+        assertEquals(Arrays.asList(
+                "REGISTER command", "REGISTER reported",
+                "CONFIRM command", "CONFIRM reported",
+                "UNLOCK command", "UNLOCK reported"), events);
+    }
+
+    @Test
+    public void testTouchStepsWithoutUpNeeded() throws Fido2Exception, IOException {
+        // the touch prompt must not depend on the authenticator reporting that it's waiting for a touch
+        SoftwareFido2Device device = new SoftwareFido2Device().setReportUpNeeded(false).setPin(PIN);
+        List<String> events = new ArrayList<>();
+        Fido2CommandState state = new Fido2CommandState((step, reported) -> events.add(describeTouch(step, reported)));
+        Fido2Enrollment enrollment = new Fido2HmacSecret(device).enroll(RP_ID, "test", Collections.emptyList(), PIN.toCharArray(), state);
+        new Fido2HmacSecret(device).unlock(Collections.singletonList(enrollment), PIN.toCharArray(), state);
+
+        // the presence-free lookup that precedes the unlock doesn't ask for a touch
+        assertEquals(Arrays.asList("REGISTER command", "CONFIRM command", "UNLOCK command"), events);
+        assertEquals(3, device.getTouches());
     }
 
     @Test
@@ -458,6 +476,10 @@ public class Fido2HmacSecretTest {
             list.add(enroll(new SoftwareFido2Device(), Collections.emptyList(), null));
         }
         return list;
+    }
+
+    private static String describeTouch(Fido2CommandState.Step step, boolean reported) {
+        return step + (reported ? " reported" : " command");
     }
 
     private static Fido2Enrollment enroll(Fido2Device device, List<? extends Fido2Credential> existing, char[] pin) throws Fido2Exception, IOException {
