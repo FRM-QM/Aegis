@@ -148,9 +148,14 @@ public abstract class Slot extends UUIDMap.Value {
                     slot = new BiometricSlot(uuid, key, keyParams);
                     break;
                 case Slot.TYPE_FIDO2:
+                    // don't let a crafted vault file make a security key compute secrets for another relying party
+                    String rpId = obj.getString("rp_id");
+                    if (!rpId.equals(Fido2Slot.DEFAULT_RP_ID)) {
+                        throw new SlotException("unsupported FIDO2 relying party ID");
+                    }
                     slot = new Fido2Slot(uuid, key, keyParams,
                             obj.getString("name"),
-                            obj.getString("rp_id"),
+                            rpId,
                             Hex.decode(obj.getString("credential_id")),
                             Hex.decode(obj.getString("salt")),
                             obj.getBoolean("uv"),

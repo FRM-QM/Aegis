@@ -207,7 +207,7 @@ public class SlotTest {
         assertArrayEquals(expected.getValues().toArray(), actual.getValues().toArray());
 
         // If a backup password slot, a regular password slot and FIDO2 slots are present:
-        // -> The regular password slot gets stripped
+        // -> The regular password slot and the FIDO2 slots get stripped
         PasswordSlot backupSlot = new PasswordSlot();
         backupSlot.setIsBackup(true);
         slots = new SlotList();
@@ -218,8 +218,6 @@ public class SlotTest {
         actual = slots.exportable();
         expected = new SlotList();
         expected.add(backupSlot);
-        expected.add(fido2Slot);
-        expected.add(fido2Slot2);
         assertArrayEquals(expected.getValues().toArray(), actual.getValues().toArray());
     }
 
@@ -292,7 +290,12 @@ public class SlotTest {
         slot = (Fido2Slot) Slot.fromJson(obj);
         assertEquals(0, slot.getCreatedAt());
 
-        // other fields are not
+        // only the relying party ID of Aegis is accepted
+        obj.put("rp_id", "example.com");
+        assertThrows(SlotException.class, () -> Slot.fromJson(obj));
+        obj.put("rp_id", Fido2Slot.DEFAULT_RP_ID);
+
+        // the other fields are required
         obj.remove("credential_id");
         assertThrows(SlotException.class, () -> Slot.fromJson(obj));
     }

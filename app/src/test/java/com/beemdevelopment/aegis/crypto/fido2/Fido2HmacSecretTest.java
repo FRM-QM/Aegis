@@ -201,10 +201,124 @@ public class Fido2HmacSecretTest {
         SoftwareFido2Device device = new SoftwareFido2Device().setPin(PIN);
         Fido2Enrollment enrollment = enroll(device, Collections.emptyList(), PIN.toCharArray());
 
-        // simulates a reset that keeps the credentials, which can't happen in practice, but tests the check
+        // simulates a reset that keeps the credentials, which can't happen in practice
+        // the credential requires user verification, so it can no longer be found
+        device.setPin(null);
+        Fido2Exception e = assertThrows(Fido2Exception.class, () -> unlock(device, Collections.singletonList(enrollment), null));
+        assertEquals(Fido2Exception.Reason.NOT_ENROLLED, e.getReason());
+    }
+
+    @Test
+    public void testPinRemovedAfterEnrollmentWithoutCredProtect() throws Fido2Exception, IOException {
+        SoftwareFido2Device device = new SoftwareFido2Device().setExtensions("hmac-secret").setPin(PIN);
+        Fido2Enrollment enrollment = enroll(device, Collections.emptyList(), PIN.toCharArray());
+
+        // without credProtect, the credential can still be found, and the mismatch is detected
         device.setPin(null);
         Fido2Exception e = assertThrows(Fido2Exception.class, () -> unlock(device, Collections.singletonList(enrollment), null));
         assertEquals(Fido2Exception.Reason.UV_MISMATCH, e.getReason());
+    }
+
+    @Test
+    public void testEnrollWithoutPinNotAllowed() throws Fido2Exception, IOException {
+        SoftwareFido2Device device = new SoftwareFido2Device();
+        Fido2CommandState state = new Fido2CommandState(null);
+        Fido2Exception e = assertThrows(Fido2Exception.class, () ->
+                new Fido2HmacSecret(device).enroll(RP_ID, "test", Collections.emptyList(), null, false, state));
+        assertEquals(Fido2Exception.Reason.NO_PIN, e.getReason());
+        assertFalse(e.isAuditable());
+        assertEquals(0, device.getTouches());
+
+        // the user agreed to register the key without a PIN
+        Fido2Enrollment enrollment = new Fido2HmacSecret(device).enroll(RP_ID, "test", Collections.emptyList(), null, true, state);
+        assertFalse(enrollment.isUv());
+    }
+
+    @Test
+    public void testEnrollWithoutPinNotAllowedReportsDuplicateFirst() throws Fido2Exception, IOException {
+        SoftwareFido2Device device = new SoftwareFido2Device();
+        Fido2Enrollment enrollment = enroll(device, Collections.emptyList(), null);
+
+        Fido2Exception e = assertThrows(Fido2Exception.class, () -> new Fido2HmacSecret(device)
+                .enroll(RP_ID, "test", Collections.singletonList(enrollment), null, false, new Fido2CommandState(null)));
+        assertEquals(Fido2Exception.Reason.ALREADY_ENROLLED, e.getReason());
+    }
+
+    @Test
+    public void testEnrollWithPinIgnoresAllowNoPin() throws Fido2Exception, IOException {
+        SoftwareFido2Device device = new SoftwareFido2Device().setPin(PIN);
+        Fido2Enrollment enrollment = new Fido2HmacSecret(device)
+                .enroll(RP_ID, "test", Collections.emptyList(), PIN.toCharArray(), false, new Fido2CommandState(null));
+        assertTrue(enrollment.isUv());
+    }
+
+    @Test
+    public void testUnlockWithPinFindsProtectedCredential() throws Fido2Exception, IOException {
+        SoftwareFido2Device device = new SoftwareFido2Device().setPin(PIN);
+        List<Fido2Enrollment> candidates = enrollOthers(3);
+        Fido2Enrollment enrollment = enroll(device, Collections.emptyList(), PIN.toCharArray());
+        candidates.add(enrollment);
+        int touches = device.getTouches();
+
+        // the credential can't be found without the PIN, so the PIN is asked for before any touch
+        Fido2Exception e = assertThrows(Fido2Exception.class, () -> unlock(device, candidates, null));
+        assertEquals(Fido2Exception.Reason.PIN_REQUIRED, e.getReason());
+        assertEquals(8, e.getPinRetries());
+        assertEquals(touches, device.getTouches());
+
+        Pair<Fido2Enrollment, byte[]> res = unlock(device, candidates, PIN.toCharArray());
+        assertSame(enrollment, res.first);
+        assertArrayEquals(enrollment.getSecret(), res.second);
+        assertEquals(touches + 1, device.getTouches());
+    }
+
+    @Test
+    public void testUnlockWithPinOtherKey() throws Fido2Exception, IOException {
+        Fido2Enrollment enrollment = enroll(new SoftwareFido2Device().setPin(PIN), Collections.emptyList(), PIN.toCharArray());
+
+        SoftwareFido2Device other = new SoftwareFido2Device().setPin(PIN);
+        Fido2Exception e = assertThrows(Fido2Exception.class, () -> unlock(other, Collections.singletonList(enrollment), PIN.toCharArray()));
+        assertEquals(Fido2Exception.Reason.NOT_ENROLLED, e.getReason());
+        assertEquals(0, other.getTouches());
+        assertEquals(8, other.getRemainingPinRetries());
+    }
+
+    @Test
+    public void testUnlockWithoutPinOtherKeyWithoutPin() throws Fido2Exception, IOException {
+        // a key without a PIN can't hold a credential that requires one, so no PIN is asked for
+        Fido2Enrollment enrollment = enroll(new SoftwareFido2Device().setPin(PIN), Collections.emptyList(), PIN.toCharArray());
+
+        SoftwareFido2Device other = new SoftwareFido2Device();
+        Fido2Exception e = assertThrows(Fido2Exception.class, () -> unlock(other, Collections.singletonList(enrollment), null));
+        assertEquals(Fido2Exception.Reason.NOT_ENROLLED, e.getReason());
+    }
+
+    @Test
+    public void testDuplicateEnrollmentWithPin() throws Fido2Exception, IOException {
+        // more credentials than fit in the exclude list, so the duplicate has to be found with the PIN
+        SoftwareFido2Device device = new SoftwareFido2Device().setPin(PIN).setMaxCredentialCountInList(1);
+        List<Fido2Enrollment> existing = enrollOthers(2);
+        Fido2Enrollment enrollment = enroll(device, Collections.emptyList(), PIN.toCharArray());
+        existing.add(enrollment);
+        int touches = device.getTouches();
+
+        Fido2Exception e = assertThrows(Fido2Exception.class, () -> enroll(device, existing, PIN.toCharArray()));
+        assertEquals(Fido2Exception.Reason.ALREADY_ENROLLED, e.getReason());
+        assertSame(enrollment, e.getCredential());
+        assertEquals(touches, device.getTouches());
+    }
+
+    @Test
+    public void testUnlockOldCredentialWithPin() throws Fido2Exception, IOException {
+        // credentials that were enrolled before credProtect level 3 was used are still found without the PIN
+        SoftwareFido2Device device = new SoftwareFido2Device().setExtensions("hmac-secret").setPin(PIN);
+        Fido2Enrollment enrollment = enroll(device, Collections.emptyList(), PIN.toCharArray());
+
+        device.setExtensions("credProtect", "hmac-secret");
+        int silent = device.getSilentAssertionCount();
+        Pair<Fido2Enrollment, byte[]> res = unlock(device, Collections.singletonList(enrollment), PIN.toCharArray());
+        assertArrayEquals(enrollment.getSecret(), res.second);
+        assertEquals(silent + 1, device.getSilentAssertionCount());
     }
 
     @Test
@@ -285,11 +399,19 @@ public class Fido2HmacSecretTest {
 
     @Test
     public void testCredProtect() throws Fido2Exception, IOException {
+        // without a PIN, the credential must be usable without user verification
         SoftwareFido2Device device = new SoftwareFido2Device();
         enroll(device, Collections.emptyList(), null);
         Map<String, ?> extensions = device.getLastMakeCredentialExtensions();
         assertNotNull(extensions);
         assertEquals(1, extensions.get("credProtect"));
+
+        // with a PIN, the authenticator must refuse to use the credential without user verification
+        device = new SoftwareFido2Device().setPin(PIN);
+        enroll(device, Collections.emptyList(), PIN.toCharArray());
+        extensions = device.getLastMakeCredentialExtensions();
+        assertNotNull(extensions);
+        assertEquals(3, extensions.get("credProtect"));
 
         device = new SoftwareFido2Device().setExtensions("hmac-secret");
         enroll(device, Collections.emptyList(), null);
@@ -309,7 +431,7 @@ public class Fido2HmacSecretTest {
         });
 
         Fido2Exception e = assertThrows(Fido2Exception.class, () ->
-                new Fido2HmacSecret(device).enroll(RP_ID, "test", Collections.emptyList(), null, state[0]));
+                new Fido2HmacSecret(device).enroll(RP_ID, "test", Collections.emptyList(), null, true, state[0]));
         assertEquals(Fido2Exception.Reason.CANCELLED, e.getReason());
         assertEquals(Arrays.asList("REGISTER command", "REGISTER reported"), events);
         assertEquals(0, device.getTouches());
@@ -320,7 +442,7 @@ public class Fido2HmacSecretTest {
         SoftwareFido2Device device = new SoftwareFido2Device();
         List<String> events = new ArrayList<>();
         Fido2CommandState state = new Fido2CommandState((step, reported) -> events.add(describeTouch(step, reported)));
-        Fido2Enrollment enrollment = new Fido2HmacSecret(device).enroll(RP_ID, "test", Collections.emptyList(), null, state);
+        Fido2Enrollment enrollment = new Fido2HmacSecret(device).enroll(RP_ID, "test", Collections.emptyList(), null, true, state);
         new Fido2HmacSecret(device).unlock(Collections.singletonList(enrollment), null, state);
 
         assertEquals(Arrays.asList(
@@ -335,7 +457,7 @@ public class Fido2HmacSecretTest {
         SoftwareFido2Device device = new SoftwareFido2Device().setReportUpNeeded(false).setPin(PIN);
         List<String> events = new ArrayList<>();
         Fido2CommandState state = new Fido2CommandState((step, reported) -> events.add(describeTouch(step, reported)));
-        Fido2Enrollment enrollment = new Fido2HmacSecret(device).enroll(RP_ID, "test", Collections.emptyList(), PIN.toCharArray(), state);
+        Fido2Enrollment enrollment = new Fido2HmacSecret(device).enroll(RP_ID, "test", Collections.emptyList(), PIN.toCharArray(), true, state);
         new Fido2HmacSecret(device).unlock(Collections.singletonList(enrollment), PIN.toCharArray(), state);
 
         // the presence-free lookup that precedes the unlock doesn't ask for a touch
@@ -355,7 +477,7 @@ public class Fido2HmacSecretTest {
         device.tap();
         Fido2CommandState state = new Fido2CommandState(null);
         assertEquals(Fido2CommandState.Step.CONNECT, state.getStep());
-        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), null, state);
+        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), null, true, state);
         assertEquals(Fido2CommandState.Step.REGISTER, state.getStep());
         assertFalse(registration.isUv());
 
@@ -376,12 +498,12 @@ public class Fido2HmacSecretTest {
         Fido2CommandState state = new Fido2CommandState(null);
 
         Fido2Exception e = assertThrows(Fido2Exception.class, () ->
-                new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), null, state));
+                new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), null, true, state));
         assertEquals(Fido2Exception.Reason.PIN_REQUIRED, e.getReason());
         assertEquals(0, device.getTouches());
 
         device.tap();
-        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), PIN.toCharArray(), state);
+        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), PIN.toCharArray(), true, state);
         assertTrue(registration.isUv());
 
         device.tap();
@@ -399,7 +521,7 @@ public class Fido2HmacSecretTest {
     @Test
     public void testConfirmWithOtherKey() throws Fido2Exception, IOException {
         SoftwareFido2Device device = new SoftwareFido2Device().setNfc(true);
-        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), null, new Fido2CommandState(null));
+        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", Collections.emptyList(), null, true, new Fido2CommandState(null));
 
         SoftwareFido2Device other = new SoftwareFido2Device().setNfc(true);
         Fido2CommandState state = new Fido2CommandState(null);
@@ -417,7 +539,7 @@ public class Fido2HmacSecretTest {
     public void testUnlockOverNfcSingleTap() throws Fido2Exception, IOException {
         SoftwareFido2Device device = new SoftwareFido2Device().setNfc(true);
         List<Fido2Enrollment> others = enrollOthers(3);
-        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", others, null, new Fido2CommandState(null));
+        Fido2Registration registration = new Fido2HmacSecret(device).register(RP_ID, "test", others, null, true, new Fido2CommandState(null));
         device.tap();
         Fido2Enrollment enrollment = new Fido2HmacSecret(device).confirm(registration, null, new Fido2CommandState(null));
 
@@ -483,7 +605,7 @@ public class Fido2HmacSecretTest {
     }
 
     private static Fido2Enrollment enroll(Fido2Device device, List<? extends Fido2Credential> existing, char[] pin) throws Fido2Exception, IOException {
-        return new Fido2HmacSecret(device).enroll(RP_ID, "test", existing, pin, new Fido2CommandState(null));
+        return new Fido2HmacSecret(device).enroll(RP_ID, "test", existing, pin, true, new Fido2CommandState(null));
     }
 
     private static <T extends Fido2Credential> Pair<T, byte[]> unlock(Fido2Device device, List<T> candidates, char[] pin) throws Fido2Exception, IOException {

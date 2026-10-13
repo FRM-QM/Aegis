@@ -23,6 +23,11 @@ public class Fido2Exception extends Exception {
         PIN_BLOCKED,
         /** The authenticator requires user verification, but no PIN has been set. */
         PIN_NOT_SET,
+        /**
+         * The authenticator has no PIN, so the credential would only be protected by user presence.
+         * The user has to agree to that before it's enrolled.
+         */
+        NO_PIN,
         /** The authenticator requires the PIN to be changed before it can be used. */
         PIN_CHANGE_REQUIRED,
         /** The user verification setting of the authenticator no longer matches the one used during enrollment. */

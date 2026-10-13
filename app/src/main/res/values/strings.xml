@@ -638,7 +638,7 @@
     <string name="pref_security_keys_empty">No security keys have been registered yet</string>
     <string name="pref_security_key_add_title">Add security key</string>
     <string name="pref_security_key_add_summary">Register a FIDO2 security key that supports the hmac-secret extension, over USB or NFC</string>
-    <string name="pref_security_keys_info">Each registered security key can unlock the vault on its own. If a key has a PIN, it\'s needed as well. Your password keeps working, so don\'t forget it.\n\nBackups can be unlocked with any security key that was registered at the time the backup was created.</string>
+    <string name="pref_security_keys_info">Each registered security key can unlock the vault on its own. If a key has a PIN, it\'s needed as well. Your password keeps working, so don\'t forget it.\n\nUnless a separate password for backup &amp; export is set, backups can be unlocked with any security key that was registered at the time the backup was created.</string>
     <string name="security_key_name_title">Name your security key</string>
     <string name="security_key_name_hint">Name</string>
     <string name="security_key_name_exists">A security key with this name already exists</string>
@@ -650,19 +650,22 @@
     <string name="security_key_action_remove">Remove</string>
     <string name="security_key_rename_title">Rename security key</string>
     <string name="security_key_remove_title">Remove security key</string>
-    <string name="security_key_remove_description">\"%1$s\" will no longer be able to unlock the vault. Backups that were created while it was registered can still be unlocked with it.</string>
+    <string name="security_key_remove_description">\"%1$s\" will no longer be able to unlock the vault. Backups that were created while it was registered can still be unlocked with it, unless a separate password for backup &amp; export was set at the time.</string>
     <string name="auth_use_security_key">Or tap here to use a <font fgcolor='#FF0D86C1'>security key</font></string>
     <string name="use_security_key">Use security key</string>
     <string name="security_key_enroll_title">Register security key</string>
     <string name="security_key_unlock_title">Unlock with security key</string>
     <string name="security_key_continue">Continue</string>
     <string name="security_key_retry">Try again</string>
+    <string name="security_key_register_without_pin">Register without PIN</string>
     <string name="security_key_pin">PIN of the security key</string>
     <string name="security_key_status_no_transport">This device doesn\'t support USB devices or NFC, so it can\'t communicate with security keys</string>
     <string name="security_key_status_insert_or_tap">Insert your security key or hold it against the back of your device</string>
     <string name="security_key_status_insert_or_tap_again">Insert your security key or hold it against the back of your device again</string>
     <string name="security_key_status_tap">Hold your security key against the back of your device</string>
     <string name="security_key_status_tap_again">Hold your security key against the back of your device again</string>
+    <string name="security_key_status_no_pin">This security key doesn\'t have a PIN</string>
+    <string name="security_key_warning_no_pin">Anyone who has this security key will be able to unlock your vault with just a touch, or over NFC without you noticing. Setting a PIN later doesn\'t change that, the key would have to be registered again. To require a PIN, set one with the tools of the manufacturer first.</string>
     <string name="security_key_status_tap_again_finish">Key registered. Hold your security key against the back of your device again to finish</string>
     <string name="security_key_status_insert">Insert your security key</string>
     <string name="security_key_status_communicating">Communicating with your security key…</string>

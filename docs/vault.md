@@ -226,7 +226,9 @@ parameters.
 FIDO2 slots wrap the master key with a key obtained from a FIDO2 security key
 through the CTAP2 __hmac-secret__ extension. When a security key is registered,
 Aegis creates a non-discoverable credential with the hmac-secret extension
-enabled for the relying party ID ``rp_id``, and generates a random 256-bit
+enabled for the relying party ID ``rp_id``, which is always
+``com.beemdevelopment.aegis``. Aegis refuses to load FIDO2 slots with any other
+``rp_id``. It also generates a random 256-bit
 ``salt``. The 32-byte output of hmac-secret for that credential and salt (as
 the only salt, ``salt1``) is used directly as the AES-256 key to wrap the master
 key. hmac-secret computes HMAC-SHA-256 with a random secret that never leaves
@@ -235,8 +237,15 @@ derivation.
 
 Security keys produce a different hmac-secret output depending on whether user
 verification was performed. If the security key has a PIN, it's required during
-registration and every unlock, and ``uv`` is set to ``true``. Otherwise, ``uv``
-is ``false`` and only a touch is needed. Registration needs user presence twice:
+registration and every unlock, and ``uv`` is set to ``true``. If the security
+key supports the __credProtect__ extension, the credential is then created with
+protection level 3 (userVerificationRequired), so that the security key itself
+refuses to use it without the PIN. Otherwise, ``uv`` is ``false`` and only a
+touch is needed, so anyone who has the security key can obtain the key. Aegis
+warns about this before registering a security key without a PIN. Setting a PIN
+on the security key later doesn't change this, as the credential and its
+hmac-secret output without user verification stay the same. The security key
+has to be registered again instead. Registration needs user presence twice:
 once to create the credential and once to obtain the hmac-secret output. Over
 NFC, CTAP 2.1 only counts a tap as user presence for a single command, so the
 security key has to be tapped twice there.
@@ -268,11 +277,12 @@ milliseconds since the Unix epoch.
 }
 ```
 
-Unlike biometric slots, FIDO2 slots are always included in backups and exports
-of the vault, even if a separate backup password is set. As such, a backup can
-be decrypted with any security key that was registered at the time the backup
-was created. Removing a security key from the
-vault doesn't affect backups that were created before.
+Unlike biometric slots, FIDO2 slots are included in backups and exports of the
+vault, unless a separate backup password is set. In that case, they're stripped
+along with the regular password slots, so that only the backup password can
+decrypt backups and exports. Otherwise, a backup can be decrypted with any
+security key that was registered at the time the backup was created. Removing a
+security key from the vault doesn't affect backups that were created before.
 
 ### Vault content
 

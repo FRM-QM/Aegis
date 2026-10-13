@@ -39,6 +39,7 @@ public class SoftwareFido2Device implements Fido2Device {
     private static final byte FLAG_UV = 0x04;
     private static final byte FLAG_AT = 0x40;
     private static final byte FLAG_ED = (byte) 0x80;
+    private static final int CRED_PROTECT_UV_REQUIRED = 3;
 
     private final SecureRandom _random = new SecureRandom();
     private final Map<String, Credential> _credentials = new HashMap<>();
@@ -107,7 +108,7 @@ public class SoftwareFido2Device implements Fido2Device {
 
         if (excludeList != null) {
             for (Map<String, ?> descriptor : excludeList) {
-                Credential cred = findCredential(rpId, (byte[]) descriptor.get("id"));
+                Credential cred = findCredential(rpId, (byte[]) descriptor.get("id"), uv);
                 if (cred != null) {
                     touch(state);
                     throw new CtapException(CtapException.ERR_CREDENTIAL_EXCLUDED);
@@ -117,7 +118,12 @@ public class SoftwareFido2Device implements Fido2Device {
 
         touch(state);
 
-        Credential cred = new Credential(rpId, randomBytes(_credentialIdLength), randomBytes(32), randomBytes(32));
+        int credProtect = 1;
+        if (extensions != null && extensions.get("credProtect") instanceof Integer && _extensions.contains("credProtect")) {
+            credProtect = (Integer) extensions.get("credProtect");
+        }
+
+        Credential cred = new Credential(rpId, randomBytes(_credentialIdLength), randomBytes(32), randomBytes(32), credProtect);
         _credentials.put(key(rpId, cred.id), cred);
 
         boolean hmacSecret = extensions != null && Boolean.TRUE.equals(extensions.get("hmac-secret"))
@@ -176,7 +182,7 @@ public class SoftwareFido2Device implements Fido2Device {
 
         Credential cred = null;
         for (Map<String, ?> descriptor : allowList) {
-            cred = findCredential(rpId, (byte[]) descriptor.get("id"));
+            cred = findCredential(rpId, (byte[]) descriptor.get("id"), uv);
             if (cred != null) {
                 break;
             }
@@ -325,9 +331,17 @@ public class SoftwareFido2Device implements Fido2Device {
         _touches++;
     }
 
+    /**
+     * Returns the credential with the given ID. As specified by CTAP 2.1, credentials that require
+     * user verification (credProtect level 3) are ignored if it wasn't performed.
+     */
     @Nullable
-    private Credential findCredential(String rpId, byte[] id) {
-        return _credentials.get(key(rpId, id));
+    private Credential findCredential(String rpId, byte[] id, boolean uv) {
+        Credential cred = _credentials.get(key(rpId, id));
+        if (cred != null && cred.credProtect == CRED_PROTECT_UV_REQUIRED && !uv) {
+            return null;
+        }
+        return cred;
     }
 
     private static String key(String rpId, byte[] id) {
@@ -493,12 +507,14 @@ public class SoftwareFido2Device implements Fido2Device {
         final byte[] id;
         final byte[] credRandomNoUv;
         final byte[] credRandomUv;
+        final int credProtect;
 
-        Credential(String rpId, byte[] id, byte[] credRandomNoUv, byte[] credRandomUv) {
+        Credential(String rpId, byte[] id, byte[] credRandomNoUv, byte[] credRandomUv, int credProtect) {
             this.rpId = rpId;
             this.id = id;
             this.credRandomNoUv = credRandomNoUv;
             this.credRandomUv = credRandomUv;
+            this.credProtect = credProtect;
         }
     }
 

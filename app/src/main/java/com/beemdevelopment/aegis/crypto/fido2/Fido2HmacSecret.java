@@ -36,10 +36,15 @@ import java.util.Map;
  *
  * If the authenticator has a PIN, user verification is performed with the PIN during enrollment
  * and every unlock, because the hmac-secret output differs with and without user verification.
+ * Such credentials are also created with credProtect level 3 (userVerificationRequired), so that
+ * the authenticator itself refuses to use them without the PIN. As a result, they can only be
+ * found with the PIN.
  */
 public class Fido2HmacSecret {
     public static final String EXT_HMAC_SECRET = "hmac-secret";
     private static final String EXT_CRED_PROTECT = "credProtect";
+    private static final int CRED_PROTECT_UV_OPTIONAL = 1;
+    private static final int CRED_PROTECT_UV_REQUIRED = 3;
     private static final String RP_NAME = "Aegis Authenticator";
     private static final int CLIENT_DATA_HASH_SIZE = 32;
     private static final int USER_ID_SIZE = 16;
@@ -89,11 +94,13 @@ public class Fido2HmacSecret {
      * @param name a name for the credential, which some authenticators may display.
      * @param existing the credentials that are already enrolled, used to detect duplicate enrollments.
      * @param pin the PIN of the authenticator, or null if not known yet.
-     * @throws Fido2Exception with reason PIN_REQUIRED if the authenticator has a PIN and none was given.
+     * @param allowNoPin whether to enroll the authenticator if it has no PIN.
+     * @throws Fido2Exception with reason PIN_REQUIRED if the authenticator has a PIN and none was given,
+     *                        or with reason NO_PIN if it has no PIN and allowNoPin is false.
      */
     public Fido2Enrollment enroll(String rpId, String name, List<? extends Fido2Credential> existing,
-                                  @Nullable char[] pin, Fido2CommandState state) throws Fido2Exception, IOException {
-        Fido2Registration registration = register(rpId, name, existing, pin, state);
+                                  @Nullable char[] pin, boolean allowNoPin, Fido2CommandState state) throws Fido2Exception, IOException {
+        Fido2Registration registration = register(rpId, name, existing, pin, allowNoPin, state);
         return confirm(registration, pin, state);
     }
 
@@ -105,10 +112,13 @@ public class Fido2HmacSecret {
      * @param name a name for the credential, which some authenticators may display.
      * @param existing the credentials that are already enrolled, used to detect duplicate enrollments.
      * @param pin the PIN of the authenticator, or null if not known yet.
-     * @throws Fido2Exception with reason PIN_REQUIRED if the authenticator has a PIN and none was given.
+     * @param allowNoPin whether to enroll the authenticator if it has no PIN. Without a PIN, anyone who
+     *                   has the authenticator can obtain the hmac-secret output with just a touch.
+     * @throws Fido2Exception with reason PIN_REQUIRED if the authenticator has a PIN and none was given,
+     *                        or with reason NO_PIN if it has no PIN and allowNoPin is false.
      */
     public Fido2Registration register(String rpId, String name, List<? extends Fido2Credential> existing,
-                                      @Nullable char[] pin, Fido2CommandState state) throws Fido2Exception, IOException {
+                                      @Nullable char[] pin, boolean allowNoPin, Fido2CommandState state) throws Fido2Exception, IOException {
         checkSupported();
         state.setStep(Fido2CommandState.Step.REGISTER);
 
@@ -133,9 +143,19 @@ public class Fido2HmacSecret {
             throw Fido2Exception.withCredential(Fido2Exception.Reason.ALREADY_ENROLLED, duplicate);
         }
 
+        if (!uv && !allowNoPin) {
+            throw new Fido2Exception(Fido2Exception.Reason.NO_PIN);
+        }
+
         PinUvAuthProtocol protocol = selectProtocol();
         if (uv) {
             checkPin(protocol, pin);
+
+            // credentials that require user verification can only be found with the PIN
+            duplicate = findCredential(filterUv(sameRp), protocol, pin, state);
+            if (duplicate != null) {
+                throw Fido2Exception.withCredential(Fido2Exception.Reason.ALREADY_ENROLLED, duplicate);
+            }
         }
 
         byte[] clientDataHash = randomBytes(CLIENT_DATA_HASH_SIZE);
@@ -164,8 +184,10 @@ public class Fido2HmacSecret {
             Map<String, Object> extensions = new HashMap<>();
             extensions.put(EXT_HMAC_SECRET, true);
             if (_info.hasExtension(EXT_CRED_PROTECT)) {
-                // make sure the credential can be found without user verification
-                extensions.put(EXT_CRED_PROTECT, 1);
+                // With a PIN, make the authenticator refuse to use the credential without it, instead of
+                // only relying on it to return a different hmac-secret output without user verification.
+                // Without a PIN, make sure the credential can be used without user verification.
+                extensions.put(EXT_CRED_PROTECT, uv ? CRED_PROTECT_UV_REQUIRED : CRED_PROTECT_UV_OPTIONAL);
             }
 
             List<Map<String, ?>> excludeList = null;
@@ -226,7 +248,8 @@ public class Fido2HmacSecret {
      *
      * @param pin the PIN of the authenticator, or null if not known yet.
      * @throws Fido2Exception with reason PIN_REQUIRED if the matching credential requires user
-     *                        verification and no PIN was given.
+     *                        verification and no PIN was given, or if the authenticator has a PIN
+     *                        and none of the credentials could be found without it.
      */
     public <T extends Fido2Credential> Pair<T, byte[]> unlock(List<T> candidates, @Nullable char[] pin,
                                                              Fido2CommandState state) throws Fido2Exception, IOException {
@@ -234,6 +257,16 @@ public class Fido2HmacSecret {
         state.setStep(Fido2CommandState.Step.UNLOCK);
 
         T cred = findCredential(candidates, state);
+        if (cred == null && !_silentAssertionsUnsupported && _info.isClientPinSet()) {
+            // credentials that require user verification can only be found with the PIN
+            List<T> uvCandidates = filterUv(candidates);
+            if (!uvCandidates.isEmpty()) {
+                PinUvAuthProtocol protocol = selectProtocol();
+                checkPin(protocol, pin);
+                cred = findCredential(uvCandidates, protocol, pin, state);
+            }
+        }
+
         if (cred != null) {
             checkUv(cred);
             return new Pair<>(cred, getSecret(cred, pin, state));
@@ -259,10 +292,21 @@ public class Fido2HmacSecret {
 
     /**
      * Returns the first of the given credentials that belongs to the authenticator, or null if there is none.
-     * Uses assertions without user presence, so no touch is needed.
+     * Uses assertions without user presence, so no touch is needed. Credentials that require user
+     * verification can't be found this way.
      */
     @Nullable
     <T extends Fido2Credential> T findCredential(List<T> candidates, Fido2CommandState state) throws Fido2Exception, IOException {
+        return findCredential(candidates, null, null, state);
+    }
+
+    /**
+     * Like {@link #findCredential(List, Fido2CommandState)}, but performs user verification with
+     * the given PIN if it's not null, so that credentials that require it can be found as well.
+     */
+    @Nullable
+    private <T extends Fido2Credential> T findCredential(List<T> candidates, @Nullable PinUvAuthProtocol protocol,
+                                                         @Nullable char[] pin, Fido2CommandState state) throws Fido2Exception, IOException {
         if (candidates.isEmpty() || _silentAssertionsUnsupported) {
             return null;
         }
@@ -292,10 +336,19 @@ public class Fido2HmacSecret {
             for (int i = 0; i < creds.size(); i += batchSize) {
                 List<T> batch = creds.subList(i, Math.min(i + batchSize, creds.size()));
 
+                byte[] clientDataHash = randomBytes(CLIENT_DATA_HASH_SIZE);
+                byte[] pinToken = null;
+                byte[] pinUvAuthParam = null;
                 List<Fido2Assertion> assertions;
                 try {
-                    assertions = _device.getAssertions(entry.getKey(), randomBytes(CLIENT_DATA_HASH_SIZE),
-                            toDescriptors(batch), null, options, null, null, state);
+                    if (pin != null) {
+                        // the pin token is single-use, so every batch needs a fresh one
+                        pinToken = getPinToken(protocol, pin, ClientPin.PIN_PERMISSION_GA, entry.getKey());
+                        pinUvAuthParam = protocol.authenticate(pinToken, clientDataHash);
+                    }
+
+                    assertions = _device.getAssertions(entry.getKey(), clientDataHash, toDescriptors(batch), null,
+                            options, pinUvAuthParam, pin != null ? protocol.getVersion() : null, state);
                 } catch (CtapException e) {
                     byte error = e.getCtapError();
                     if (error == CtapException.ERR_NO_CREDENTIALS) {
@@ -306,9 +359,12 @@ public class Fido2HmacSecret {
                         _silentAssertionsUnsupported = true;
                         return null;
                     }
-                    throw toFido2Exception(e, null);
+                    throw toFido2Exception(e, protocol);
                 } catch (CommandException e) {
-                    throw toFido2Exception(e, null);
+                    throw toFido2Exception(e, protocol);
+                } finally {
+                    wipe(pinToken);
+                    wipe(pinUvAuthParam);
                 }
 
                 for (Fido2Assertion assertion : assertions) {
@@ -519,6 +575,16 @@ public class Fido2HmacSecret {
             i += Character.charCount(cp);
         }
         return sb.toString();
+    }
+
+    private static <T extends Fido2Credential> List<T> filterUv(List<T> creds) {
+        List<T> list = new ArrayList<>();
+        for (T cred : creds) {
+            if (cred.isUv()) {
+                list.add(cred);
+            }
+        }
+        return list;
     }
 
     private static List<Map<String, ?>> toDescriptors(List<? extends Fido2Credential> creds) {

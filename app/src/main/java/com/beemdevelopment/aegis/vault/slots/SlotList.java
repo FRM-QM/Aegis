@@ -76,8 +76,8 @@ public class SlotList extends UUIDMap<Slot> {
     /**
      * Returns a copy of this SlotList that is suitable for exporting.
      * Strips biometric slots.
-     * In case there's a backup password slot, any regular password slots are stripped.
-     * FIDO2 slots are always kept, so that any enrolled security key can unlock the export.
+     * In case there's a backup password slot, any regular password slots and FIDO2 slots are stripped.
+     * Otherwise, FIDO2 slots are kept, so that any enrolled security key can unlock the export.
      */
     public SlotList exportable() {
         boolean hasBackupSlots = false;
@@ -93,6 +93,9 @@ public class SlotList extends UUIDMap<Slot> {
                 continue;
             }
             if (hasBackupSlots && slot instanceof PasswordSlot && !((PasswordSlot) slot).isBackup()) {
+                continue;
+            }
+            if (hasBackupSlots && slot instanceof Fido2Slot) {
                 continue;
             }
             slots.add(slot);

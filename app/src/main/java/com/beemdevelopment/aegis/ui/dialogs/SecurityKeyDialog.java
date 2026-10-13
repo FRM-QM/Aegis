@@ -111,7 +111,10 @@ public class SecurityKeyDialog<T> {
     }
 
     private interface Operation<T> {
-        T run(Fido2HmacSecret fido, @Nullable char[] pin, Fido2CommandState state, boolean nfc) throws Exception;
+        /**
+         * @param noPinAccepted whether the user agreed to register a security key that has no PIN.
+         */
+        T run(Fido2HmacSecret fido, @Nullable char[] pin, boolean noPinAccepted, Fido2CommandState state, boolean nfc) throws Exception;
     }
 
     /**
@@ -144,7 +147,7 @@ public class SecurityKeyDialog<T> {
 
         @Override
         public void onUsbPermissionPending() {
-            if (!_busy && !_awaitingPin) {
+            if (!_busy && !_awaitingPin && !_awaitingNoPinConfirmation) {
                 setHint(_activity.getString(R.string.security_key_hint_usb_permission), false);
             }
         }
@@ -193,6 +196,8 @@ public class SecurityKeyDialog<T> {
     private char[] _pin;
     private boolean _busy;
     private boolean _awaitingPin;
+    private boolean _awaitingNoPinConfirmation;
+    private boolean _noPinAccepted;
     private boolean _succeeded;
     private boolean _closed;
     // the result of an operation that finished while the activity was being recreated
@@ -216,10 +221,10 @@ public class SecurityKeyDialog<T> {
                                                           List<Fido2Slot> existing, Listener<Fido2Slot> listener) {
         // the credential that was created on the key, if obtaining its secret is still pending
         AtomicReference<Fido2Registration> pending = new AtomicReference<>();
-        Operation<Fido2Slot> operation = (fido, pin, state, nfc) -> {
+        Operation<Fido2Slot> operation = (fido, pin, noPinAccepted, state, nfc) -> {
             Fido2Registration registration = pending.get();
             if (registration == null) {
-                registration = fido.register(Fido2Slot.DEFAULT_RP_ID, name, existing, pin, state);
+                registration = fido.register(Fido2Slot.DEFAULT_RP_ID, name, existing, pin, noPinAccepted, state);
                 pending.set(registration);
 
                 // over NFC, a tap only counts as user presence for a single command, so obtaining the secret needs another tap
@@ -266,7 +271,7 @@ public class SecurityKeyDialog<T> {
      */
     public static SecurityKeyDialog<UnlockResult> showUnlock(ComponentActivity activity, List<Fido2Slot> candidates,
                                                              Listener<UnlockResult> listener) {
-        Operation<UnlockResult> operation = (fido, pin, state, nfc) -> {
+        Operation<UnlockResult> operation = (fido, pin, noPinAccepted, state, nfc) -> {
             Pair<Fido2Slot, byte[]> res = fido.unlock(candidates, pin, state);
             try {
                 return new UnlockResult(res.first, res.first.unwrap(res.second));
@@ -466,14 +471,14 @@ public class SecurityKeyDialog<T> {
             usbDevice.setOnClosed(() -> _handler.post(() -> {
                 if (_usbDevice == usbDevice) {
                     _usbDevice = null;
-                    if (!_busy && !_awaitingPin && !_closed) {
+                    if (!_busy && !_awaitingPin && !_awaitingNoPinConfirmation && !_closed) {
                         setButton(0);
                     }
                 }
             }));
         }
 
-        if (_busy || _awaitingPin) {
+        if (_busy || _awaitingPin || _awaitingNoPinConfirmation) {
             return;
         }
 
@@ -504,6 +509,7 @@ public class SecurityKeyDialog<T> {
         });
         _state = state;
         char[] pin = _pin != null ? _pin.clone() : null;
+        boolean noPinAccepted = _noPinAccepted;
 
         try {
             if (device.supportsConnection(FidoConnection.class)) {
@@ -511,7 +517,7 @@ public class SecurityKeyDialog<T> {
                     Object value = null;
                     Exception error = null;
                     try {
-                        value = _operation.run(new Fido2HmacSecret(YubiKitFido2Device.open(result.getValue())), pin, state, nfc);
+                        value = _operation.run(new Fido2HmacSecret(YubiKitFido2Device.open(result.getValue())), pin, noPinAccepted, state, nfc);
                     } catch (Exception e) {
                         error = e;
                     } finally {
@@ -524,7 +530,7 @@ public class SecurityKeyDialog<T> {
                     Object value = null;
                     Exception error = null;
                     try {
-                        value = _operation.run(new Fido2HmacSecret(YubiKitFido2Device.open(result.getValue())), pin, state, nfc);
+                        value = _operation.run(new Fido2HmacSecret(YubiKitFido2Device.open(result.getValue())), pin, noPinAccepted, state, nfc);
                     } catch (Exception e) {
                         error = e;
                     } finally {
@@ -589,6 +595,9 @@ public class SecurityKeyDialog<T> {
         switch (e.getReason()) {
             case CONFIRM_REQUIRED:
                 showWaitingForConfirmation();
+                break;
+            case NO_PIN:
+                showNoPinWarning();
                 break;
             case PIN_REQUIRED:
                 showPinPrompt(null, e.getPinRetries());
@@ -794,6 +803,17 @@ public class SecurityKeyDialog<T> {
         setHint(null, false);
     }
 
+    /**
+     * Warns that the security key has no PIN and asks the user whether to register it anyway.
+     */
+    private void showNoPinWarning() {
+        _awaitingNoPinConfirmation = true;
+        hidePinPrompt();
+        setStatus(_activity.getString(R.string.security_key_status_no_pin));
+        setHint(_activity.getString(R.string.security_key_warning_no_pin), true);
+        setButton(R.string.security_key_register_without_pin);
+    }
+
     private void showError(String message) {
         wipePin();
         hidePinPrompt();
@@ -835,7 +855,18 @@ public class SecurityKeyDialog<T> {
             return;
         }
 
-        if (_awaitingPin) {
+        if (_awaitingNoPinConfirmation) {
+            _awaitingNoPinConfirmation = false;
+            _noPinAccepted = true;
+
+            // nothing that needs a touch has happened yet, so continue right away if the key is still plugged in
+            if (_usbDevice != null && _lastDevice == _usbDevice) {
+                run(_usbDevice);
+            } else {
+                setButton(0);
+                showWaiting(true);
+            }
+        } else if (_awaitingPin) {
             char[] pin = EditTextHelper.getEditTextChars(_textPin);
             if (pin.length == 0) {
                 return;
